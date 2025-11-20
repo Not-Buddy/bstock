@@ -964,6 +964,8 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "ndarray",
+ "serde",
+ "serde_json",
  "time",
  "tokio",
  "yahoo_finance_api",

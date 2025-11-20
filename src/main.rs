@@ -1,13 +1,29 @@
+mod yahooapi;
+
+use crate::yahooapi::fetch_stock_data;
+
 use ndarray::{Array1};
 use std::error::Error;
-use time::OffsetDateTime;
-use yahoo_finance_api::YahooConnector;
+use std::fs;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
 struct StockData {
     timestamps: Vec<i64>,
     closes: Vec<f64>,
     volumes: Vec<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct StockConfig {
+    symbols: Vec<String>,
+    analysis_period_days: i64,
+}
+
+fn read_config(file_path: &str) -> Result<StockConfig, Box<dyn Error>> {
+    let config_content = fs::read_to_string(file_path)?;
+    let config: StockConfig = serde_json::from_str(&config_content)?;
+    Ok(config)
 }
 
 impl StockData {
@@ -100,32 +116,6 @@ impl StockData {
     }
 }
 
-async fn fetch_stock_data(symbol: &str, period_days: i64) -> Result<StockData, Box<dyn Error>> {
-    let provider = YahooConnector::new()?;
-    
-    let end = OffsetDateTime::now_utc();
-    let start = end - time::Duration::days(period_days);
-    
-    let response = provider
-        .get_quote_history(symbol, start, end)
-        .await?;
-    
-    let mut stock_data = StockData::new();
-    
-    let quotes = response.quotes()?;
-    for bar in quotes {
-        // FIX: Convert u64 timestamp to i64
-        stock_data.add_point(
-            bar.timestamp as i64,  // Cast from u64 to i64
-            bar.close,
-            bar.volume,
-        );
-    }
-    
-    Ok(stock_data)
-}
-
-
 fn analyze_stock(stock_data: &StockData) {
     println!("📊 Stock Analysis");
     println!("=================");
@@ -169,23 +159,35 @@ fn analyze_stock(stock_data: &StockData) {
     }
 }
 
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     println!("🚀 Stock Predictor in Rust");
     println!("==========================\n");
     
-    let symbol = "AAPL";
-    println!("Fetching data for: {}\n", symbol);
+    // Read config from JSON file
+    let config = read_config("stocks_config.json")?;
+    println!("Loaded config for {} symbols", config.symbols.len());
+    println!("Analysis period: {} days\n", config.analysis_period_days);
     
-    // Fetch last 90 days of data
-    let stock_data = fetch_stock_data(symbol, 90).await?;
-    
-    if stock_data.len() > 0 {
-        analyze_stock(&stock_data);
-    } else {
-        println!("No data found for symbol: {}", symbol);
+    // Analyze each stock symbol
+    for symbol in config.symbols {
+        match fetch_stock_data(&symbol, config.analysis_period_days).await {
+            Ok(stock_data) => {
+                if stock_data.len() > 0 {
+                    analyze_stock(&stock_data);
+                } else {
+                    println!("No data found for symbol: {}", symbol);
+                }
+            }
+            Err(e) => {
+                println!("Error fetching data for {}: {}", symbol, e);
+            }
+        }
+        
+        // Add a small delay between requests to be respectful to the API
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
     
     Ok(())
 }
-

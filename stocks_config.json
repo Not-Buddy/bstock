@@ -1,0 +1,5 @@
+{
+  "symbols": ["AAPL", "GOOGL", "MSFT", "TSLA", "NVDA"],
+  "analysis_period_days": 90
+}
+

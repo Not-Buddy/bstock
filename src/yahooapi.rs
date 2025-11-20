@@ -1,0 +1,29 @@
+use yahoo_finance_api::YahooConnector;
+use crate::StockData;
+use time::OffsetDateTime;
+use std::error::Error;
+
+pub async fn fetch_stock_data(symbol: &str, period_days: i64) -> Result<StockData, Box<dyn Error>> {
+    let provider = YahooConnector::new()?;
+
+    let end = OffsetDateTime::now_utc();
+    let start = end - time::Duration::days(period_days);
+
+    let response = provider
+        .get_quote_history(symbol, start, end)
+        .await?;
+
+    let mut stock_data = StockData::new();
+
+    let quotes = response.quotes()?;
+    for bar in quotes {
+        // FIX: Convert u64 timestamp to i64
+        stock_data.add_point(
+            bar.timestamp as i64,  // Cast from u64 to i64
+            bar.close,
+            bar.volume,
+        );
+    }
+
+    Ok(stock_data)
+}

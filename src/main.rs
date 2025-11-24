@@ -1,193 +1,210 @@
-mod yahooapi;
+use anyhow::Result;
+use clap::Parser;
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{
+    prelude::*,
+    widgets::{Block, Borders, Paragraph},
+};
+use stock_predictor_lib::{
+    analysis::{analyze_stock, StockAnalysis},
+    config::{read_config, StockConfig},
+    yahooapi::fetch_stock_data,
+};
+use std::{io, sync::mpsc, thread, time::Duration};
+use tokio::runtime::Runtime;
 
-use crate::yahooapi::fetch_stock_data;
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Stock symbols to analyze
+    #[arg(short, long, num_args = 1..)]
+    symbols: Option<Vec<String>>,
 
-use ndarray::{Array1};
-use std::error::Error;
-use std::fs;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug)]
-struct StockData {
-    timestamps: Vec<i64>,
-    closes: Vec<f64>,
-    volumes: Vec<u64>,
+    /// Analysis period in days
+    #[arg(short, long)]
+    period: Option<i64>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct StockConfig {
-    symbols: Vec<String>,
-    analysis_period_days: i64,
+enum AppEvent {
+    Update(StockAnalysis),
+    Error(String),
 }
 
-fn read_config(file_path: &str) -> Result<StockConfig, Box<dyn Error>> {
-    let config_content = fs::read_to_string(file_path)?;
-    let config: StockConfig = serde_json::from_str(&config_content)?;
-    Ok(config)
-}
+fn main() -> Result<()> {
+    let args = Args::parse();
+    let rt = Runtime::new()?;
 
-impl StockData {
-    fn new() -> Self {
-        StockData {
-            timestamps: Vec::new(),
-            closes: Vec::new(),
-            volumes: Vec::new(),
+    let config = if let Some(symbols) = args.symbols {
+        let period = args.period.unwrap_or(90);
+        StockConfig {
+            symbols,
+            analysis_period_days: period,
         }
-    }
+    } else {
+        read_config("stocks_config.json")?
+    };
 
-    fn add_point(&mut self, timestamp: i64, close: f64, volume: u64) {
-        self.timestamps.push(timestamp);
-        self.closes.push(close);
-        self.volumes.push(volume);
-    }
+    // setup terminal
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
 
-    fn len(&self) -> usize {
-        self.closes.len()
-    }
+    let (tx, rx) = mpsc::channel();
 
-    // Calculate Simple Moving Average
-    fn sma(&self, period: usize) -> Option<Array1<f64>> {
-        if self.len() < period {
-            return None;
-        }
-
-        let mut sma_values = Vec::new();
-        for i in period..self.len() {
-            let sum: f64 = self.closes[i - period..i].iter().sum();
-            sma_values.push(sum / period as f64);
-        }
-
-        Some(Array1::from(sma_values))
-    }
-
-    // Calculate Exponential Moving Average
-    fn ema(&self, period: usize) -> Option<Array1<f64>> {
-        if self.len() < period {
-            return None;
-        }
-
-        let mut ema_values = Vec::new();
-        let multiplier = 2.0 / (period as f64 + 1.0);
-        
-        // First EMA is SMA of first period
-        let initial_sma: f64 = self.closes[0..period].iter().sum::<f64>() / period as f64;
-        ema_values.push(initial_sma);
-
-        for i in period..self.len() {
-            let ema = (self.closes[i] - ema_values.last().unwrap()) * multiplier 
-                     + ema_values.last().unwrap();
-            ema_values.push(ema);
-        }
-
-        Some(Array1::from(ema_values))
-    }
-
-    // Simple prediction based on trend
-    fn predict_next(&self, periods: usize) -> Vec<f64> {
-        if self.len() < 2 {
-            return vec![];
-        }
-
-        // Calculate recent trend
-        let recent_period = periods.min(self.len());
-        let mut predictions = Vec::new();
-        
-        // Use linear regression on recent data
-        let n = recent_period as f64;
-        let x: Vec<f64> = (0..recent_period).map(|i| i as f64).collect();
-        let y = &self.closes[self.len() - recent_period..];
-        
-        // Calculate slope and intercept
-        let sum_x: f64 = x.iter().sum();
-        let sum_y: f64 = y.iter().sum();
-        let sum_xy: f64 = x.iter().zip(y.iter()).map(|(xi, yi)| xi * yi).sum();
-        let sum_x2: f64 = x.iter().map(|xi| xi * xi).sum();
-        
-        let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x);
-        let intercept = (sum_y - slope * sum_x) / n;
-        
-        // Predict next values
-        for i in 1..=3 {
-            let next_x = (recent_period + i) as f64;
-            predictions.push(slope * next_x + intercept);
-        }
-        
-        predictions
-    }
-}
-
-fn analyze_stock(stock_data: &StockData) {
-    println!("📊 Stock Analysis");
-    println!("=================");
-    println!("Total data points: {}", stock_data.len());
-    
-    if let Some(current_price) = stock_data.closes.last() {
-        println!("Current price: ${:.2}", current_price);
-    }
-    
-    // Calculate moving averages
-    if let Some(sma_10) = stock_data.sma(10) {
-        if let Some(current_sma) = sma_10.last() {
-            println!("10-day SMA: ${:.2}", current_sma);
-        }
-    }
-    
-    if let Some(sma_50) = stock_data.sma(50) {
-        if let Some(current_sma) = sma_50.last() {
-            println!("50-day SMA: ${:.2}", current_sma);
-        }
-    }
-    
-    if let Some(ema_20) = stock_data.ema(20) {
-        if let Some(current_ema) = ema_20.last() {
-            println!("20-day EMA: ${:.2}", current_ema);
-        }
-    }
-    
-    // Make predictions
-    println!("\n🔮 Predictions (next 3 days):");
-    let predictions = stock_data.predict_next(20);
-    for (i, price) in predictions.iter().enumerate() {
-        println!("Day {}: ${:.2}", i + 1, price);
-    }
-    
-    // Calculate trend
-    if stock_data.len() >= 2 {
-        let recent_change = (stock_data.closes.last().unwrap() - stock_data.closes[stock_data.len() - 2]) 
-                          / stock_data.closes[stock_data.len() - 2] * 100.0;
-        println!("\n📈 Recent trend: {:.2}%", recent_change);
-    }
-}
-
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    println!("🚀 Stock Predictor in Rust");
-    println!("==========================\n");
-    
-    // Read config from JSON file
-    let config = read_config("stocks_config.json")?;
-    println!("Loaded config for {} symbols", config.symbols.len());
-    println!("Analysis period: {} days\n", config.analysis_period_days);
-    
-    // Analyze each stock symbol
-    for symbol in config.symbols {
-        match fetch_stock_data(&symbol, config.analysis_period_days).await {
-            Ok(stock_data) => {
-                if stock_data.len() > 0 {
-                    analyze_stock(&stock_data);
-                } else {
-                    println!("No data found for symbol: {}", symbol);
+    rt.spawn(async move {
+        for symbol in &config.symbols {
+            match fetch_stock_data(symbol, config.analysis_period_days).await {
+                Ok(stock_data) => {
+                    if stock_data.len() > 0 {
+                        let analysis = analyze_stock(&stock_data, symbol);
+                        tx.send(AppEvent::Update(analysis)).unwrap();
+                    } else {
+                        tx.send(AppEvent::Error(format!("No data found for symbol: {}", symbol))).unwrap();
+                    }
+                }
+                Err(e) => {
+                    tx.send(AppEvent::Error(format!("Error fetching data for {}: {}", symbol, e))).unwrap();
                 }
             }
-            Err(e) => {
-                println!("Error fetching data for {}: {}", symbol, e);
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    });
+
+    let mut analyses = Vec::new();
+    let mut is_loading = true;
+
+    loop {
+        match rx.try_recv() {
+            Ok(app_event) => {
+                match app_event {
+                    AppEvent::Update(analysis) => analyses.push(analysis),
+                    AppEvent::Error(_err) => {
+                        // In this case, we'll just ignore them for now
+                    }
+                }
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                is_loading = false; // All data is loaded
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                // No new data
             }
         }
-        
-        // Add a small delay between requests to be respectful to the API
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+        terminal.draw(|f| {
+            let size = f.size();
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(1)
+                .constraints([Constraint::Percentage(10), Constraint::Percentage(90)].as_ref())
+                .split(size);
+
+            let title = Paragraph::new("Stock Predictor").alignment(Alignment::Center);
+            f.render_widget(title, chunks[0]);
+
+            let num_stocks = analyses.len();
+            if num_stocks == 0 {
+                if !is_loading {
+                    let text = Paragraph::new("No data to display.").alignment(Alignment::Center);
+                    f.render_widget(text, chunks[1]);
+                }
+                return;
+            }
+            
+            let num_cols = (num_stocks as f32).sqrt().ceil() as usize;
+            let num_rows = (num_stocks as f32 / num_cols as f32).ceil() as usize;
+
+            let stock_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(
+                    (0..num_rows)
+                        .map(|_| Constraint::Ratio(1, num_rows as u32))
+                        .collect::<Vec<_>>(),
+                )
+                .split(chunks[1]);
+
+            for i in 0..num_rows {
+                let row_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints(
+                        (0..num_cols)
+                            .map(|_| Constraint::Ratio(1, num_cols as u32))
+                            .collect::<Vec<_>>(),
+                    )
+                    .split(stock_chunks[i]);
+
+                for j in 0..num_cols {
+                    let index = i * num_cols + j;
+                    if index < num_stocks {
+                        let analysis = &analyses[index];
+                        let block = Block::default()
+                            .title(analysis.symbol.as_str())
+                            .borders(Borders::ALL);
+                        
+                        let text = vec![
+                            Line::from(vec![
+                                Span::raw("Price: "),
+                                Span::styled(
+                                    format!("${:.2}", analysis.current_price),
+                                    Style::default().fg(Color::Green),
+                                ),
+                            ]),
+                            Line::from(format!("10-day SMA: ${:.2}", analysis.sma_10.unwrap_or(0.0))),
+                            Line::from(format!("50-day SMA: ${:.2}", analysis.sma_50.unwrap_or(0.0))),
+                            Line::from(format!("20-day EMA: ${:.2}", analysis.ema_20.unwrap_or(0.0))),
+                            Line::from(vec![
+                                Span::raw("Trend: "),
+                                Span::styled(
+                                    format!("{:.2}%", analysis.recent_change.unwrap_or(0.0)),
+                                    if analysis.recent_change.unwrap_or(0.0) > 0.0 {
+                                        Style::default().fg(Color::Green)
+                                    } else {
+                                        Style::default().fg(Color::Red)
+                                    },
+                                ),
+                            ]),
+                            Line::from(""),
+                            Line::from("Predictions:"),
+                            Line::from(format!("Day 1: ${:.2}", analysis.predictions[0])),
+                            Line::from(format!("Day 2: ${:.2}", analysis.predictions[1])),
+                            Line::from(format!("Day 3: ${:.2}", analysis.predictions[2])),
+                        ];
+
+                        let paragraph = Paragraph::new(text).block(block);
+                        f.render_widget(paragraph, row_chunks[j]);
+                    }
+                }
+            }
+        })?;
+
+        if !is_loading {
+            thread::sleep(Duration::from_millis(200));
+            break;
+        }
+
+        if event::poll(Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                if let KeyCode::Char('q') = key.code {
+                    break;
+                }
+            }
+        }
     }
-    
+
+    // restore terminal
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
     Ok(())
 }

@@ -7,6 +7,12 @@ pub struct StockData {
     pub volumes: Vec<u64>,
 }
 
+impl Default for StockData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StockData {
     pub fn new() -> Self {
         StockData {
@@ -24,6 +30,10 @@ impl StockData {
 
     pub fn len(&self) -> usize {
         self.closes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.closes.is_empty()
     }
 
     // Calculate Simple Moving Average

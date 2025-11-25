@@ -14,7 +14,7 @@ use stock_predictor_lib::{
     config::{read_config, StockConfig},
     yahooapi::fetch_stock_data,
 };
-use std::{io, sync::mpsc, thread, time::Duration};
+use std::{io, sync::mpsc, time::Duration};
 use tokio::runtime::Runtime;
 
 #[derive(Parser, Debug)]
@@ -61,7 +61,7 @@ fn main() -> Result<()> {
         for symbol in &config.symbols {
             match fetch_stock_data(symbol, config.analysis_period_days).await {
                 Ok(stock_data) => {
-                    if stock_data.len() > 0 {
+                    if !stock_data.is_empty() {
                         let analysis = analyze_stock(&stock_data, symbol);
                         tx.send(AppEvent::Update(analysis)).unwrap();
                     } else {
@@ -77,23 +77,15 @@ fn main() -> Result<()> {
     });
 
     let mut analyses = Vec::new();
-    let mut is_loading = true;
+    let mut selected_index = 0;
 
     loop {
-        match rx.try_recv() {
-            Ok(app_event) => {
-                match app_event {
-                    AppEvent::Update(analysis) => analyses.push(analysis),
-                    AppEvent::Error(_err) => {
-                        // In this case, we'll just ignore them for now
-                    }
+        if let Ok(app_event) = rx.try_recv() {
+            match app_event {
+                AppEvent::Update(analysis) => analyses.push(analysis),
+                AppEvent::Error(_err) => {
+                    // In this case, we'll just ignore them for now
                 }
-            }
-            Err(mpsc::TryRecvError::Disconnected) => {
-                is_loading = false; // All data is loaded
-            }
-            Err(mpsc::TryRecvError::Empty) => {
-                // No new data
             }
         }
 
@@ -110,88 +102,64 @@ fn main() -> Result<()> {
 
             let num_stocks = analyses.len();
             if num_stocks == 0 {
-                if !is_loading {
-                    let text = Paragraph::new("No data to display.").alignment(Alignment::Center);
-                    f.render_widget(text, chunks[1]);
-                }
+                let text = Paragraph::new("Loading data...").alignment(Alignment::Center);
+                f.render_widget(text, chunks[1]);
                 return;
             }
-            
-            let num_cols = (num_stocks as f32).sqrt().ceil() as usize;
-            let num_rows = (num_stocks as f32 / num_cols as f32).ceil() as usize;
 
-            let stock_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(
-                    (0..num_rows)
-                        .map(|_| Constraint::Ratio(1, num_rows as u32))
-                        .collect::<Vec<_>>(),
-                )
-                .split(chunks[1]);
+            let analysis = &analyses[selected_index];
+            let block = Block::default()
+                .title(analysis.symbol.as_str())
+                .borders(Borders::ALL);
 
-            for i in 0..num_rows {
-                let row_chunks = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints(
-                        (0..num_cols)
-                            .map(|_| Constraint::Ratio(1, num_cols as u32))
-                            .collect::<Vec<_>>(),
-                    )
-                    .split(stock_chunks[i]);
+            let text = vec![
+                Line::from(vec![
+                    Span::raw("Price: "),
+                    Span::styled(
+                        format!("${:.2}", analysis.current_price),
+                        Style::default().fg(Color::Green),
+                    ),
+                ]),
+                Line::from(format!("10-day SMA: ${:.2}", analysis.sma_10.unwrap_or(0.0))),
+                Line::from(format!("50-day SMA: ${:.2}", analysis.sma_50.unwrap_or(0.0))),
+                Line::from(format!("20-day EMA: ${:.2}", analysis.ema_20.unwrap_or(0.0))),
+                Line::from(vec![
+                    Span::raw("Trend: "),
+                    Span::styled(
+                        format!("{:.2}%", analysis.recent_change.unwrap_or(0.0)),
+                        if analysis.recent_change.unwrap_or(0.0) > 0.0 {
+                            Style::default().fg(Color::Green)
+                        } else {
+                            Style::default().fg(Color::Red)
+                        },
+                    ),
+                ]),
+                Line::from(""),
+                Line::from("Predictions:"),
+                Line::from(format!("Day 1: ${:.2}", analysis.predictions[0])),
+                Line::from(format!("Day 2: ${:.2}", analysis.predictions[1])),
+                Line::from(format!("Day 3: ${:.2}", analysis.predictions[2])),
+            ];
 
-                for j in 0..num_cols {
-                    let index = i * num_cols + j;
-                    if index < num_stocks {
-                        let analysis = &analyses[index];
-                        let block = Block::default()
-                            .title(analysis.symbol.as_str())
-                            .borders(Borders::ALL);
-                        
-                        let text = vec![
-                            Line::from(vec![
-                                Span::raw("Price: "),
-                                Span::styled(
-                                    format!("${:.2}", analysis.current_price),
-                                    Style::default().fg(Color::Green),
-                                ),
-                            ]),
-                            Line::from(format!("10-day SMA: ${:.2}", analysis.sma_10.unwrap_or(0.0))),
-                            Line::from(format!("50-day SMA: ${:.2}", analysis.sma_50.unwrap_or(0.0))),
-                            Line::from(format!("20-day EMA: ${:.2}", analysis.ema_20.unwrap_or(0.0))),
-                            Line::from(vec![
-                                Span::raw("Trend: "),
-                                Span::styled(
-                                    format!("{:.2}%", analysis.recent_change.unwrap_or(0.0)),
-                                    if analysis.recent_change.unwrap_or(0.0) > 0.0 {
-                                        Style::default().fg(Color::Green)
-                                    } else {
-                                        Style::default().fg(Color::Red)
-                                    },
-                                ),
-                            ]),
-                            Line::from(""),
-                            Line::from("Predictions:"),
-                            Line::from(format!("Day 1: ${:.2}", analysis.predictions[0])),
-                            Line::from(format!("Day 2: ${:.2}", analysis.predictions[1])),
-                            Line::from(format!("Day 3: ${:.2}", analysis.predictions[2])),
-                        ];
-
-                        let paragraph = Paragraph::new(text).block(block);
-                        f.render_widget(paragraph, row_chunks[j]);
-                    }
-                }
-            }
+            let paragraph = Paragraph::new(text).block(block);
+            f.render_widget(paragraph, chunks[1]);
         })?;
-
-        if !is_loading {
-            thread::sleep(Duration::from_millis(200));
-            break;
-        }
 
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
-                if let KeyCode::Char('q') = key.code {
-                    break;
+                match key.code {
+                    KeyCode::Char('q') => break,
+                    KeyCode::Left => {
+                        if selected_index > 0 {
+                            selected_index -= 1;
+                        }
+                    }
+                    KeyCode::Right => {
+                        if !analyses.is_empty() && selected_index < analyses.len() - 1 {
+                            selected_index += 1;
+                        }
+                    }
+                    _ => {}
                 }
             }
         }

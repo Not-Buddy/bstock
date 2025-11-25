@@ -7,7 +7,7 @@ use crossterm::{
 };
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph, canvas::{Canvas, Line}},
+    widgets::{Block, Borders, Paragraph, canvas::{Canvas, Line}, Clear},
 };
 use stock_predictor_lib::{
     analysis::{analyze_stock, StockAnalysis},
@@ -102,7 +102,6 @@ fn filter_data_by_time_range(stock_data: &StockData, time_range: TimeRange) -> V
         TimeRange::FiveDays => std::cmp::min(5, total_points),   // Last 5 days
         TimeRange::OneMonth => std::cmp::min(30, total_points),  // Last 30 days
         TimeRange::SixMonths => std::cmp::min(180, total_points), // Last ~6 months
-        TimeRange::YTD => std::cmp::min(365, total_points),      // Year to date
     };
 
     // Take the last N points based on the time range
@@ -135,7 +134,6 @@ enum TimeRange {
     FiveDays = 5,
     OneMonth = 30,
     SixMonths = 180,
-    YTD = 365, // Year to date (approx.)
 }
 
 impl TimeRange {
@@ -145,7 +143,6 @@ impl TimeRange {
             TimeRange::FiveDays,
             TimeRange::OneMonth,
             TimeRange::SixMonths,
-            TimeRange::YTD,
         ]
     }
 
@@ -155,7 +152,6 @@ impl TimeRange {
             TimeRange::FiveDays => "5D",
             TimeRange::OneMonth => "1M",
             TimeRange::SixMonths => "6M",
-            TimeRange::YTD => "YTD",
         }
     }
 }
@@ -189,6 +185,69 @@ fn render_time_range_selector(current_time_range: TimeRange, is_selected: bool) 
     Paragraph::new(text)
         .alignment(Alignment::Center)
         .block(Block::default())
+}
+
+// Function to render additional metrics for the selected stock
+fn render_additional_metrics(stock_data: &StockData, analysis: &StockAnalysis, time_range: TimeRange) -> Paragraph<'static> {
+    // Calculate various metrics based on the stock data
+    let high_52w = stock_data.closes.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let low_52w = stock_data.closes.iter().cloned().fold(f64::INFINITY, f64::min);
+    let current_price = analysis.current_price;
+
+    let change_from_high = ((current_price - high_52w) / high_52w) * 100.0;
+    let change_from_low = ((current_price - low_52w) / low_52w) * 100.0;
+
+    let avg_volume: u64 = if !stock_data.volumes.is_empty() {
+        (stock_data.volumes.iter().sum::<u64>() as f64 / stock_data.volumes.len() as f64) as u64
+    } else {
+        0
+    };
+
+    // Calculate volatility based on the standard deviation of returns
+    let volatility = calculate_volatility(&stock_data.closes);
+
+    // Format the metrics text with shorter labels to fit in smaller space
+    let metrics_text = format!(
+        "Hi: ${:.2}\nLo: ${:.2}\nHi%: {:.2}%\nLo%: {:.2}%\nVol: {:.2}%\nVol: {}\n\n{}",
+        high_52w,
+        low_52w,
+        change_from_high,
+        change_from_low,
+        volatility,
+        avg_volume,
+        time_range.as_str()
+    );
+
+    Paragraph::new(metrics_text)
+        .block(Block::default().borders(Borders::ALL).title("Metrics"))
+        .style(Style::default().fg(Color::White))
+}
+
+// Helper function to calculate volatility (standard deviation of returns)
+fn calculate_volatility(prices: &[f64]) -> f64 {
+    if prices.len() < 2 {
+        return 0.0;
+    }
+
+    // Calculate daily returns
+    let returns: Vec<f64> = prices.windows(2)
+        .map(|w| if w[0] != 0.0 { (w[1] - w[0]) / w[0] } else { 0.0 })
+        .collect();
+
+    if returns.is_empty() {
+        return 0.0;
+    }
+
+    // Calculate mean return
+    let mean_return = returns.iter().sum::<f64>() / returns.len() as f64;
+
+    // Calculate variance
+    let variance = returns.iter()
+        .map(|r| (r - mean_return).powi(2))
+        .sum::<f64>() / returns.len() as f64;
+
+    // Standard deviation (volatility) as percentage
+    variance.sqrt() * 100.0
 }
 
 fn main() -> Result<()> {
@@ -269,11 +328,51 @@ fn main() -> Result<()> {
 
         terminal.draw(|f| {
             let size = f.size();
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(1)
-                .constraints([Constraint::Percentage(10), Constraint::Percentage(80), Constraint::Percentage(10)].as_ref())
-                .split(size);
+
+            // Check if terminal is too small and display overlay if needed
+            if size.width < 100 || size.height < 35 {
+                // Create overlay for small terminal message
+                let overlay_area = Rect::new(
+                    size.width.saturating_sub(50) / 2,
+                    size.height.saturating_sub(10) / 2,
+                    50.min(size.width),
+                    10.min(size.height)
+                );
+
+                let block = Block::default()
+                    .borders(Borders::ALL)
+                    .title("Terminal Size Warning");
+
+                // Determine colors based on whether dimensions meet requirements
+                let width_color = if size.width >= 100 { Color::Green } else { Color::Red };
+                let height_color = if size.height >= 35 { Color::Green } else { Color::Red };
+
+                // Create colored text for dimensions
+                let text = vec![
+                    ratatui::text::Line::from("Terminal size:"),
+                    ratatui::text::Line::from(vec![
+                        Span::raw("  Width = "),
+                        Span::styled(size.width.to_string(), Style::default().fg(width_color)),
+                        Span::raw("    Height = "),
+                        Span::styled(size.height.to_string(), Style::default().fg(height_color)),
+                    ]),
+                    ratatui::text::Line::from(""),
+                    ratatui::text::Line::from("Needed for current config:"),
+                    ratatui::text::Line::from("  Width = 100  Height = 35"),
+                ];
+
+                let paragraph = Paragraph::new(text)
+                    .block(block)
+                    .alignment(Alignment::Center);
+
+                f.render_widget(Clear, overlay_area); // Clear the area to create the modal effect
+                f.render_widget(paragraph, overlay_area);
+            } else {
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .margin(1)
+                    .constraints([Constraint::Percentage(10), Constraint::Percentage(80), Constraint::Percentage(10)].as_ref())
+                    .split(size);
 
             let num_stocks = analyses.len();
             let num_pages = (num_stocks as f32 / 4.0).ceil() as usize;
@@ -342,12 +441,13 @@ fn main() -> Result<()> {
                             ])
                             .split(inner_area);
 
-                        // Split the main content area for text and chart
-                        let text_and_chart_chunks = Layout::default()
+                        // Split the main content area for text, metrics and chart
+                        let main_content_chunks = Layout::default()
                             .direction(Direction::Horizontal)
                             .constraints([
-                                Constraint::Percentage(60),  // 60% for text
-                                Constraint::Percentage(40),  // 40% for chart
+                                Constraint::Percentage(45),  // 45% for text details
+                                Constraint::Percentage(20),  // 20% for metrics
+                                Constraint::Percentage(35),  // 35% for chart
                             ])
                             .split(content_with_selector[0]);
 
@@ -381,12 +481,17 @@ fn main() -> Result<()> {
                             ratatui::text::Line::from(format!("Day 3: ${:.2}", analysis.predictions[2])),
                         ];
 
+                        // Render the text details
                         let paragraph = Paragraph::new(text);
-                        f.render_widget(paragraph, text_and_chart_chunks[0]);
+                        f.render_widget(paragraph, main_content_chunks[0]);
+
+                        // Render the additional metrics
+                        let metrics = render_additional_metrics(stock_data, analysis, analysis_with_data.time_range);
+                        f.render_widget(metrics, main_content_chunks[1]);
 
                         // Render the chart with the selected time range
                         let chart = create_stock_chart(analysis, stock_data, analysis_with_data.time_range);
-                        f.render_widget(chart, text_and_chart_chunks[1]);
+                        f.render_widget(chart, main_content_chunks[2]);
 
                         // Render the time range selector below the chart
                         let time_range_selector = render_time_range_selector(analysis_with_data.time_range, selected_index == index);
@@ -395,9 +500,10 @@ fn main() -> Result<()> {
                 }
             }
 
-            let help_text = Paragraph::new("Use arrow keys to change pages, 'q' or Ctrl-C to quit.")
-                .alignment(Alignment::Center);
-            f.render_widget(help_text, chunks[2]);
+                let help_text = Paragraph::new("Use arrow keys to change pages, 'q' or Ctrl-C to quit.")
+                    .alignment(Alignment::Center);
+                f.render_widget(help_text, chunks[2]);
+            }
         })?;
 
         if event::poll(Duration::from_millis(100))? {

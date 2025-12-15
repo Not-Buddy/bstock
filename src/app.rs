@@ -14,8 +14,13 @@ use tokio::runtime::Runtime;
 use crate::{
     data::TimeRange,
     event::AppEvent,
-    ui::layout::draw_ui,
+    ui::{detail::draw_detail_ui, layout::draw_ui},
 };
+
+pub enum View {
+    Main,
+    Detail,
+}
 
 pub struct AnalysisWithChartData {
     pub analysis: StockAnalysis,
@@ -28,6 +33,7 @@ pub struct App {
     selected_index: usize,
     selected_time_range_index: usize,
     rt: Runtime,
+    current_view: View,
 }
 
 impl App {
@@ -37,6 +43,7 @@ impl App {
             selected_index: 0,
             selected_time_range_index: 0,
             rt: Runtime::new()?,
+            current_view: View::Main,
         })
     }
 
@@ -94,7 +101,18 @@ impl App {
                 }
             }
 
-            terminal.draw(|f| draw_ui(f, &self.analyses, self.selected_index))?;
+            match self.current_view {
+                View::Main => {
+                    terminal.draw(|f| draw_ui(f, &self.analyses, self.selected_index))?;
+                }
+                View::Detail => {
+                    terminal.draw(|f| {
+                        if let Some(selected_data) = self.analyses.get(self.selected_index) {
+                            draw_detail_ui(f, selected_data, f.size());
+                        }
+                    })?;
+                }
+            }
 
             if event::poll(Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
@@ -148,6 +166,12 @@ impl App {
                                         TimeRange::all()[self.selected_time_range_index];
                                 }
                             }
+                        }
+                        KeyCode::Enter => {
+                            self.current_view = View::Detail;
+                        }
+                        KeyCode::Esc => {
+                            self.current_view = View::Main;
                         }
                         _ => {}
                     }

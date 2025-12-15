@@ -8,6 +8,28 @@ use stock_predictor_lib::{
 };
 use crate::data::{filter_data_by_time_range, TimeRange};
 
+// Function to draw a simple line chart for a stock based on selected time range
+pub fn draw_chart(
+    f: &mut Frame,
+    stock_data: &StockData,
+    area: Rect,
+    time_range: TimeRange,
+) {
+    // Create a dummy StockAnalysis for the chart - we'll use the current price from the stock data
+    let dummy_analysis = stock_predictor_lib::analysis::StockAnalysis {
+        symbol: String::from("---"), // Placeholder
+        current_price: stock_data.closes.last().copied().unwrap_or(0.0),
+        sma_10: None,
+        sma_50: None,
+        ema_20: None,
+        predictions: vec![],
+        recent_change: None,
+    };
+
+    let chart_widget = create_stock_chart(&dummy_analysis, stock_data, time_range);
+    f.render_widget(chart_widget, area);
+}
+
 // Function to create a simple line chart for a stock based on selected time range
 pub fn create_stock_chart<'a>(
     stock_analysis: &'a StockAnalysis,

@@ -6,6 +6,7 @@ use crate::lib::{
     analysis::StockAnalysis,
     config::{StockConfig},
     stock_data::StockData,
+    persistence::PersistenceManager,
 };
 use std::io;
 use std::time::Duration;
@@ -35,28 +36,31 @@ pub struct App {
     pub selected_time_range_index: usize,
     rt: Runtime,
     pub current_view: View,
-    pub config_file_path: String,  // Path to the config file
+    pub config_file_path: String,  // Path to the config file (for compatibility)
     pub editing_symbols: Vec<String>, // Symbols being edited
     pub editing_selected_index: usize, // Selected index in the editing list
     pub new_symbol_input: String, // Currently typed new symbol
     should_refresh_after_save: bool, // Flag to indicate we need to refresh after saving
     channel_rx: Option<std::sync::mpsc::Receiver<AppEvent>>, // Channel receiver for app events
+    persistence_manager: PersistenceManager, // Persistence manager
 }
 
 impl App {
     pub fn new() -> Result<Self> {
+        let persistence_manager = PersistenceManager::new()?;
         Ok(Self {
             analyses: Vec::new(),
             selected_index: 0,
             selected_time_range_index: 0,
             rt: Runtime::new()?,
             current_view: View::Main,
-            config_file_path: String::from("stocks_config.json"), // Default path
+            config_file_path: String::from("persistent_config"), // For compatibility
             editing_symbols: Vec::new(),
             editing_selected_index: 0,
             new_symbol_input: String::new(),
             should_refresh_after_save: false,
             channel_rx: None,
+            persistence_manager,
         })
     }
 
@@ -76,7 +80,8 @@ impl App {
             // Check if we need to refresh the data
             if self.should_refresh_after_save {
                 self.should_refresh_after_save = false;
-                if let Ok(config) = crate::lib::config::read_config(&self.config_file_path) {
+                // Use the persistence manager to get the latest config
+                if let Ok(config) = self.persistence_manager.get_stock_config() {
                     let _ = self.initialize_data_fetching(&config);
                 }
             }
@@ -216,13 +221,13 @@ impl App {
                                 KeyCode::Char(c) => {
                                     // Check if this is Ctrl+S (save command)
                                     if c == 's' && key.modifiers.contains(event::KeyModifiers::CONTROL) {
-                                        // Save the changes to the config file
+                                        // Save the changes to persistent storage
                                         let updated_config = crate::lib::config::StockConfig {
                                             symbols: self.editing_symbols.clone(),
                                             analysis_period_days: 90, // Use current value or get from original config
                                         };
 
-                                        if let Err(e) = crate::lib::config::write_config(&updated_config, &self.config_file_path) {
+                                        if let Err(e) = self.persistence_manager.save_stock_config(&updated_config) {
                                             // In a real application, you might want to show an error message
                                             eprintln!("Error saving config: {}", e);
                                         } else {

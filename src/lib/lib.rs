@@ -3,3 +3,4 @@ pub mod yahooapi;
 pub mod config;
 pub mod analysis;
 pub mod error;
+pub mod persistence;

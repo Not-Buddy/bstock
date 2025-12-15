@@ -1,54 +1,121 @@
 # Stock Predictor
 
-A simple stock predictor in Rust that fetches historical data from Yahoo Finance, performs some analysis, and predicts future prices.
+![Normal View](examplesimages/NormalView.png)
+![Big View](examplesimages/BigView.png)
+![Symbol Editor](examplesimages/SymbolEditor.png)
+
+A comprehensive, interactive terminal-based stock predictor written in Rust that fetches historical data from Yahoo Finance, performs analysis, and provides price predictions with a user-friendly TUI (Terminal User Interface).
 
 ## Features
 
--   Fetches historical stock data from Yahoo Finance.
--   Calculates Simple Moving Average (SMA) and Exponential Moving Average (EMA).
--   Predicts future prices using simple linear regression.
--   Provides a command-line interface (CLI) to specify stock symbols and analysis period.
--   Displays the analysis results in a clean, table-based format with colors.
--   Shows a progress bar when fetching data for multiple stocks.
+- **Interactive TUI**: Full-screen terminal user interface with navigation and detailed views
+- **Stock Analysis**: Fetches historical stock data from Yahoo Finance and calculates:
+  - Simple Moving Average (SMA) 10/50-day
+  - Exponential Moving Average (EMA) 20-day
+  - Recent trend percentage
+  - Price predictions for next days
+- **Multiple Time Ranges**: View charts with different time ranges (1D, 5D, 1M, 6M)
+- **Detailed View**: Rich detail view on stock selection with:
+  - Price chart with Y-axis labels
+  - Stock metrics and additional information
+  - Stock symbol displayed prominently
+- **Configurable Stocks**: Load from `stocks_config.json` or specify via CLI
+- **Stock Management**: Edit stocks using the 'e' key:
+  - Add new stock symbols
+  - Remove existing symbols
+  - Save changes to config file
+  - Automatic refresh after saving
 
-## How to Run
+## Installation
 
-1.  Clone the repository.
-2.  Install the Rust toolchain.
-3.  Run the application using `cargo run`.
+1. Ensure you have Rust installed (1.70 or later)
+2. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd bstock
+   ```
 
-### Using the CLI
+## Usage
 
-You can specify stock symbols and the analysis period using the command-line arguments:
-
+### Basic Usage
 ```bash
-cargo run -- -s <SYMBOLS> -p <PERIOD>
+# Use the default stocks_config.json
+cargo run
+
+# Specify stocks and period via command line
+cargo run -- -s AAPL GOOGL MSFT -p 90
 ```
 
--   `-s, --symbols`: A list of stock symbols to analyze (e.g., `AAPL GOOGL MSFT`).
--   `-p, --period`: The analysis period in days (e.g., `90`).
+### Command Line Options
+- `-s, --symbols`: Specify stock symbols to analyze (e.g., `AAPL GOOGL`)
+- `-p, --period`: Set analysis period in days (default: 90)
 
-If no arguments are provided, the application will use the symbols and period defined in the `stocks_config.json` file.
+### Navigation
+- **Left/Right Arrow Keys**: Navigate between stocks
+- **Up/Down Arrow Keys**: Change time range in main view, navigate in edit mode
+- **Enter**: View detailed stock information
+- **Escape**: Return to main view from detail view
+- **'e' Key**: Enter stock editing mode
+- **'q' or Ctrl+C**: Quit the application
 
-## Example Output
+### Stock Editing Mode
+When in editing mode (press 'e'):
+- Type stock symbol and press **Enter** to add
+- Use **Up/Down** arrows to select existing symbols
+- Press **Delete** to remove selected symbol
+- Press **Ctrl+S** to save changes to config file
+- Press **Escape** to exit editing mode
+- The app automatically refreshes with new stocks after saving
+
+## Configuration
+
+Stock symbols and analysis period are defined in `stocks_config.json`:
+```json
+{
+  "symbols": ["GOOGL", "MSFT", "TSLA", "NVDA"],
+  "analysis_period_days": 90
+}
 ```
-[00:00:04] ######################################## 5/5 (0s) Done
-                         ─                  │
-│ Stock Analysis for NVDA
-│ Current Price             $179.39
-─                         ├                  ┼
-│ 10-day SMA                $187.70
-─                         ├                  ┼
-│ 50-day SMA                $186.46
-─                         ├                  ┼
-│ 20-day EMA                $187.37
-─                         ├                  ┼
-│ Prediction (Day 1)        $176.34
-─                         ├                  ┼
-│ Prediction (Day 2)        $174.95
-─                         ├                  ┼
-│ Prediction (Day 3)        $173.56
-─                         ├                  ┼
-│ Recent Trend              0.29%
-                          ┤
-```
+
+The config file is automatically updated when you add/remove stocks via the edit mode.
+
+## Requirements
+
+- Rust 1.70+
+- Internet connection (to fetch stock data from Yahoo Finance)
+- Terminal that supports color output
+
+## Architecture
+
+The application is structured as:
+- **Main Application**: Core logic and state management
+- **UI Module**: TUI rendering with ratatui
+- **Data Module**: Time range handling and data processing
+- **Event System**: Asynchronous stock data fetching
+- **Config Module**: Stock configuration management
+
+## Dependencies
+
+- `ratatui`: Terminal user interface framework
+- `crossterm`: Cross-platform terminal handling
+- `tokio`: Async runtime for concurrent data fetching
+- `serde_json`: JSON configuration handling
+- `clap`: Command line argument parsing
+
+## Performance
+
+- Async data fetching for all configured stocks
+- Efficient terminal rendering
+- Responsive UI with non-blocking operations
+- Automatic refresh after configuration changes
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

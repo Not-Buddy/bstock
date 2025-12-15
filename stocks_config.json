@@ -1,5 +1,13 @@
 {
-  "symbols": ["GOOGL", "MSFT", "TSLA", "NVDA","NBIS","IREN","SLDP","PLTR"],
+  "symbols": [
+    "PLTR",
+    "NBIS",
+    "GOOGL",
+    "NVDA",
+    "MSFT",
+    "TSLA",
+    "SLDP",
+    "IREN"
+  ],
   "analysis_period_days": 90
 }
-

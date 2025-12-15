@@ -30,16 +30,7 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-
-    let config = if let Some(symbols) = args.symbols {
-        let period = args.period.unwrap_or(90);
-        StockConfig {
-            symbols,
-            analysis_period_days: period,
-        }
-    } else {
-        read_config("stocks_config.json")?
-    };
+    let config_file_path = "stocks_config.json"; // Fixed path for now
 
     // setup terminal
     enable_raw_mode()?;
@@ -49,7 +40,17 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new()?;
-    let res = app.run(&mut terminal, &config);
+    let config = if let Some(symbols) = args.symbols {
+        let period = args.period.unwrap_or(90);
+        StockConfig {
+            symbols,
+            analysis_period_days: period,
+        }
+    } else {
+        read_config(config_file_path)?
+    };
+
+    let res = app.run(&mut terminal, &config, config_file_path);
 
     // restore terminal
     disable_raw_mode()?;

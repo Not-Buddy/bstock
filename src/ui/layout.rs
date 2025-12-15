@@ -219,7 +219,7 @@ pub fn draw_ui(f: &mut Frame, analyses: &[AnalysisWithChartData], selected_index
             }
         }
 
-        let help_text = Paragraph::new("Use arrow keys to change pages, 'q' or Ctrl-C to quit.")
+        let help_text = Paragraph::new("Use arrow keys to change pages and 'e' to edit stocks , 'q' or Ctrl-C to quit.")
             .alignment(Alignment::Center);
         f.render_widget(help_text, chunks[2]);
     }

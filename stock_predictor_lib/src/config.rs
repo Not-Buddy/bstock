@@ -13,3 +13,9 @@ pub fn read_config(file_path: &str) -> Result<StockConfig, AppError> {
     let config: StockConfig = serde_json::from_str(&config_content)?;
     Ok(config)
 }
+
+pub fn write_config(config: &StockConfig, file_path: &str) -> Result<(), AppError> {
+    let config_content = serde_json::to_string_pretty(config)?;
+    fs::write(file_path, config_content)?;
+    Ok(())
+}

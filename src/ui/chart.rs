@@ -2,7 +2,7 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, canvas::{Canvas, Line,}},
 };
-use stock_predictor_lib::{
+use crate::lib::{
     analysis::{StockAnalysis},
     stock_data::StockData,
 };
@@ -18,7 +18,7 @@ pub fn draw_chart(
     time_range: TimeRange,
 ) {
     // Create a dummy StockAnalysis for the chart - we'll use the current price from the stock data
-    let dummy_analysis = stock_predictor_lib::analysis::StockAnalysis {
+    let dummy_analysis = crate::lib::analysis::StockAnalysis {
         symbol: String::from("---"), // Placeholder
         current_price: stock_data.closes.last().copied().unwrap_or(0.0),
         sma_10: None,

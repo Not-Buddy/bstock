@@ -3,7 +3,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, BorderType},
     Frame,
 };
-use stock_predictor_lib::stock_data::StockData;
+use crate::lib::stock_data::StockData;
 
 use crate::app::AnalysisWithChartData;
 use crate::data::{filter_data_by_time_range, TimeRange};

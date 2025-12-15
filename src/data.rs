@@ -1,4 +1,4 @@
-use stock_predictor_lib::stock_data::StockData;
+use crate::lib::stock_data::StockData;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TimeRange {

@@ -2,7 +2,7 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph},
 };
-use stock_predictor_lib::{
+use crate::lib::{
     analysis::{StockAnalysis},
     stock_data::StockData,
 };
@@ -11,7 +11,7 @@ use crate::data::{calculate_volatility, TimeRange};
 // Function to draw metrics for the selected stock
 pub fn draw_metrics(f: &mut Frame, stock_data: &StockData, area: Rect) {
     // Create a dummy analysis - using current price from stock data
-    let dummy_analysis = stock_predictor_lib::analysis::StockAnalysis {
+    let dummy_analysis = crate::lib::analysis::StockAnalysis {
         symbol: String::from("---"), // Placeholder
         current_price: stock_data.closes.last().copied().unwrap_or(0.0),
         sma_10: None,

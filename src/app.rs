@@ -2,7 +2,7 @@ use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode};
 use ratatui::prelude::*;
 
-use stock_predictor_lib::{
+use crate::lib::{
     analysis::StockAnalysis,
     config::{StockConfig},
     stock_data::StockData,
@@ -76,7 +76,7 @@ impl App {
             // Check if we need to refresh the data
             if self.should_refresh_after_save {
                 self.should_refresh_after_save = false;
-                if let Ok(config) = stock_predictor_lib::config::read_config(&self.config_file_path) {
+                if let Ok(config) = crate::lib::config::read_config(&self.config_file_path) {
                     let _ = self.initialize_data_fetching(&config);
                 }
             }
@@ -217,12 +217,12 @@ impl App {
                                     // Check if this is Ctrl+S (save command)
                                     if c == 's' && key.modifiers.contains(event::KeyModifiers::CONTROL) {
                                         // Save the changes to the config file
-                                        let updated_config = stock_predictor_lib::config::StockConfig {
+                                        let updated_config = crate::lib::config::StockConfig {
                                             symbols: self.editing_symbols.clone(),
                                             analysis_period_days: 90, // Use current value or get from original config
                                         };
 
-                                        if let Err(e) = stock_predictor_lib::config::write_config(&updated_config, &self.config_file_path) {
+                                        if let Err(e) = crate::lib::config::write_config(&updated_config, &self.config_file_path) {
                                             // In a real application, you might want to show an error message
                                             eprintln!("Error saving config: {}", e);
                                         } else {
@@ -282,7 +282,7 @@ impl App {
     /// Initialize data fetching for the given configuration
     fn initialize_data_fetching(&mut self, config: &StockConfig) -> Result<()> {
         use std::sync::mpsc;
-        use stock_predictor_lib::{
+        use crate::lib::{
             analysis::analyze_stock,
             yahooapi::fetch_stock_data,
         };

@@ -1,5 +1,5 @@
-use crate::error::AppError;
-use crate::stock_data::StockData;
+use crate::lib::error::AppError;
+use crate::lib::stock_data::StockData;
 use time::OffsetDateTime;
 use yahoo_finance_api::YahooConnector;
 

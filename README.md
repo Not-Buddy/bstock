@@ -1,4 +1,4 @@
-# Stock Predictor
+# btstock
 
 ![Normal View](examplesimages/NormalView.png)
 ![Big View](examplesimages/BigView.png)

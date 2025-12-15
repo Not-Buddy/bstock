@@ -6,12 +6,19 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{prelude::*, backend::CrosstermBackend};
-use stock_predictor_lib::config::{read_config, StockConfig};
+use crate::lib::config::{read_config, StockConfig};
 use std::io;
 
 mod app;
 mod data;
 mod event;
+mod lib {
+    pub mod analysis;
+    pub mod config;
+    pub mod error;
+    pub mod stock_data;
+    pub mod yahooapi;
+}
 mod ui;
 
 use app::App;

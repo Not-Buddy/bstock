@@ -68,7 +68,7 @@ pub fn draw_ui(f: &mut Frame, analyses: &[AnalysisWithChartData], selected_index
         let current_page = selected_index / 4 + 1;
 
         let title =
-            Paragraph::new(format!("Stock Predictor - Page {}/{}", current_page, num_pages))
+            Paragraph::new(format!("Bstock - Page {}/{}", current_page, num_pages))
                 .alignment(Alignment::Center);
         f.render_widget(title, chunks[0]);
 

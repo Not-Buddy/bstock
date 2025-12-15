@@ -1,4 +1,4 @@
-use stock_predictor_lib::{
+use crate::lib::{
     analysis::StockAnalysis,
     stock_data::StockData,
 };

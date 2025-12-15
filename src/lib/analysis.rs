@@ -1,4 +1,4 @@
-use crate::stock_data::StockData;
+use crate::lib::stock_data::StockData;
 
 pub struct StockAnalysis {
     pub symbol: String,

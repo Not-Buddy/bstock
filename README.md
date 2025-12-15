@@ -1,4 +1,4 @@
-# btstock
+# bstock
 
 ![Normal View](examplesimages/NormalView.png)
 ![Big View](examplesimages/BigView.png)
@@ -19,15 +19,29 @@ A comprehensive, interactive terminal-based stock predictor written in Rust that
   - Price chart with Y-axis labels
   - Stock metrics and additional information
   - Stock symbol displayed prominently
-- **Configurable Stocks**: Load from `stocks_config.json` or specify via CLI
+- **Persistent Configuration**: Automatically persists stock configurations across app restarts
+- **Configurable Stocks**: Load from persistent storage or specify via CLI
 - **Stock Management**: Edit stocks using the 'e' key:
   - Add new stock symbols
   - Remove existing symbols
-  - Save changes to config file
+  - Save changes to persistent config
   - Automatic refresh after saving
 
 ## Installation
 
+There are two ways to install bstock:
+
+### Using Cargo
+```bash
+cargo install --git https://github.com/Not-Buddy/bstock
+```
+
+Or if published to crates.io:
+```bash
+cargo install bstock
+```
+
+### From Source
 1. Ensure you have Rust installed (1.70 or later)
 2. Clone the repository:
    ```bash
@@ -39,7 +53,7 @@ A comprehensive, interactive terminal-based stock predictor written in Rust that
 
 ### Basic Usage
 ```bash
-# Use the default stocks_config.json
+# Use the default persistent configuration
 cargo run
 
 # Specify stocks and period via command line
@@ -63,21 +77,26 @@ When in editing mode (press 'e'):
 - Type stock symbol and press **Enter** to add
 - Use **Up/Down** arrows to select existing symbols
 - Press **Delete** to remove selected symbol
-- Press **Ctrl+S** to save changes to config file
+- Press **Ctrl+S** to save changes to persistent config
 - Press **Escape** to exit editing mode
 - The app automatically refreshes with new stocks after saving
 
 ## Configuration
 
-Stock symbols and analysis period are defined in `stocks_config.json`:
-```json
-{
-  "symbols": ["GOOGL", "MSFT", "TSLA", "NVDA"],
-  "analysis_period_days": 90
-}
-```
+Stocks are managed through a persistent configuration system that stores settings in your system's standard config directory (as an internal JSON file):
 
-The config file is automatically updated when you add/remove stocks via the edit mode.
+- On Linux: `~/.config/bstock/config.json`
+- On macOS: `~/Library/Application Support/com.bstock.bstock/config.json`
+- On Windows: `C:\Users\<username>\AppData\Roaming\bstock\config.json`
+
+The application automatically manages this configuration file. You can modify stocks through:
+- Command-line arguments when launching the application
+- The built-in editor (press 'e' key while running)
+
+The default configuration includes these stock symbols:
+`PLTR`, `NBIS`, `GOOGL`, `NVDA`, `MSFT`, `TSLA`, `SLDP`, `IREN`
+
+Command-line options will override the persistent config temporarily, but changes made in the editor will update the saved configuration.
 
 ## Requirements
 
@@ -93,6 +112,8 @@ The application is structured as:
 - **Data Module**: Time range handling and data processing
 - **Event System**: Asynchronous stock data fetching
 - **Config Module**: Stock configuration management
+- **Persistence Module**: Persistent configuration storage across app restarts
+- **Analysis Module**: Technical analysis calculations
 
 ## Dependencies
 
@@ -101,6 +122,9 @@ The application is structured as:
 - `tokio`: Async runtime for concurrent data fetching
 - `serde_json`: JSON configuration handling
 - `clap`: Command line argument parsing
+- `yahoo_finance_api`: Yahoo Finance data fetching
+- `directories`: Cross-platform config directory management
+- `ndarray`: Numerical computations for predictions
 
 ## Performance
 
@@ -108,6 +132,7 @@ The application is structured as:
 - Efficient terminal rendering
 - Responsive UI with non-blocking operations
 - Automatic refresh after configuration changes
+- Persistent configuration reduces startup time
 
 ## Contributing
 

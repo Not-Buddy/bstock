@@ -33,7 +33,6 @@ impl Default for AppConfig {
 
 
 pub struct PersistenceManager {
-    config_dir: PathBuf,
     config_file: PathBuf,
 }
 
@@ -54,7 +53,6 @@ impl PersistenceManager {
             .map_err(AppError::Io)?;
 
         Ok(PersistenceManager {
-            config_dir,
             config_file,
         })
     }

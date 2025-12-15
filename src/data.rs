@@ -41,11 +41,7 @@ pub fn filter_data_by_time_range(stock_data: &StockData, time_range: TimeRange) 
     };
 
     // Take the last N points based on the time range
-    let start_index = if total_points > points_to_show {
-        total_points - points_to_show
-    } else {
-        0
-    };
+    let start_index = total_points.saturating_sub(points_to_show);
 
     stock_data.closes[start_index..].to_vec()
 }

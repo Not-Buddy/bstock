@@ -16,13 +16,13 @@ fn draw_y_axis_labels(f: &mut Frame, area: Rect, stock_data: &StockData, time_ra
     let filtered_prices = filter_data_by_time_range(stock_data, time_range);
 
     let max_price = if !filtered_prices.is_empty() {
-        *filtered_prices.iter().max_by(|a, b| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal)).unwrap_or(&stock_data.closes.last().copied().unwrap_or(0.0))
+        *filtered_prices.iter().max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)).unwrap_or(&stock_data.closes.last().copied().unwrap_or(0.0))
     } else {
         stock_data.closes.last().copied().unwrap_or(0.0)
     };
 
     let min_price = if !filtered_prices.is_empty() {
-        *filtered_prices.iter().min_by(|a, b| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal)).unwrap_or(&stock_data.closes.last().copied().unwrap_or(0.0))
+        *filtered_prices.iter().min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)).unwrap_or(&stock_data.closes.last().copied().unwrap_or(0.0))
     } else {
         stock_data.closes.last().copied().unwrap_or(0.0)
     };
@@ -34,7 +34,7 @@ fn draw_y_axis_labels(f: &mut Frame, area: Rect, stock_data: &StockData, time_ra
 
     // Create Y-axis labels at 4 key positions: max, 3/4, 1/2, 1/4, and min
     let step = (y_bounds_max - y_bounds_min) / 4.0;
-    let labels = vec![
+    let labels = [
         format!("${:.2}", y_bounds_max),
         format!("${:.2}", y_bounds_max - step),
         format!("${:.2}", y_bounds_max - 2.0 * step),

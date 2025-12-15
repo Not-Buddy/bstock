@@ -8,6 +8,8 @@ use stock_predictor_lib::{
 };
 use crate::data::{filter_data_by_time_range, TimeRange};
 
+type CanvasFn<'a> = Box<dyn Fn(&mut ratatui::widgets::canvas::Context<'_>) + 'a>;
+
 // Function to draw a simple line chart for a stock based on selected time range
 pub fn draw_chart(
     f: &mut Frame,
@@ -35,7 +37,7 @@ pub fn create_stock_chart<'a>(
     stock_analysis: &'a StockAnalysis,
     stock_data: &'a StockData,
     time_range: TimeRange
-) -> Canvas<'a, Box<dyn Fn(&mut ratatui::widgets::canvas::Context<'_>) + 'a>> {
+) -> Canvas<'a, CanvasFn<'a>> {
     // Filter the stock data based on the selected time range
     let filtered_prices = filter_data_by_time_range(stock_data, time_range);
 
@@ -57,8 +59,6 @@ pub fn create_stock_chart<'a>(
 
     let x_bounds_max = (filtered_prices.len() as f64).max(1.0);
 
-    // Clone the data to avoid borrowing issues
-    let filtered_prices = filtered_prices;
     let current_price = stock_analysis.current_price;
 
     Canvas::default()
@@ -99,7 +99,7 @@ pub fn create_stock_chart<'a>(
                     color: Color::Gray,
                 });
             }
-        }) as Box<dyn Fn(&mut ratatui::widgets::canvas::Context<'_>) + 'a>)
+        }) as CanvasFn<'a>)
         .marker(Marker::Braille)
         .x_bounds([0.0, x_bounds_max])
         .y_bounds([y_bounds_min, y_bounds_max])

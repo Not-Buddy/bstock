@@ -156,15 +156,27 @@ impl App {
     }
 
     /// Fetch data for a single stock (called on Enter or time-range change).
+    /// Clears the existing data immediately so old data doesn't show while loading.
     pub(super) fn fetch_single_stock(&mut self, index: usize, time_range: TimeRange) {
         if index >= self.analyses.len() {
             return;
         }
+        // Clear old data immediately — chart shows empty until new data arrives
+        self.analyses[index].stock_data = StockData::new();
+        self.analyses[index].analysis = StockAnalysis {
+            symbol: self.analyses[index].analysis.symbol.clone(),
+            current_price: 0.0,
+            sma_10: None, sma_50: None, ema_20: None,
+            sma10_values: vec![], sma50_values: vec![], ema20_values: vec![],
+            predictions: vec![], recent_change: None,
+        };
+
         let symbol = self.analyses[index].analysis.symbol.clone();
         let (tx, rx) = std::sync::mpsc::channel();
         self.channel_rx = Some(rx);
         self.loading_total = 1;
         self.loading_done = 0;
+        self.loading_errors.clear();
         self.rt.spawn(async move {
             match fetch_stock_data(&symbol, time_range).await {
                 Ok(stock_data) => {

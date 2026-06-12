@@ -3,60 +3,100 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 use crate::lib::{
-    analysis::{StockAnalysis},
+    analysis::StockAnalysis,
     stock_data::StockData,
 };
 use crate::data::{calculate_volatility, TimeRange};
 
-// Function to draw metrics for the selected stock
-pub fn draw_metrics(f: &mut Frame, stock_data: &StockData, area: Rect) {
-    // Create a dummy analysis - using current price from stock data
-    let dummy_analysis = crate::lib::analysis::StockAnalysis {
-        symbol: String::from("---"), // Placeholder
-        current_price: stock_data.closes.last().copied().unwrap_or(0.0),
-        sma_10: None,
-        sma_50: None,
-        ema_20: None,
-        predictions: vec![],
-        recent_change: None,
-    };
-
-    let metrics_widget = render_additional_metrics(stock_data, &dummy_analysis, TimeRange::OneMonth); // Default time range
-    f.render_widget(metrics_widget, area);
+/// Render the metrics panel with real analysis data.
+pub fn draw_metrics(
+    f: &mut Frame,
+    analysis: &StockAnalysis,
+    stock_data: &StockData,
+    area: Rect,
+    time_range: TimeRange,
+) {
+    let widget = render_metrics(analysis, stock_data, time_range);
+    f.render_widget(widget, area);
 }
 
-// Function to render additional metrics for the selected stock
-pub fn render_additional_metrics(stock_data: &StockData, analysis: &StockAnalysis, time_range: TimeRange) -> Paragraph<'static> {
-    // Calculate various metrics based on the stock data
-    let high_52w = stock_data.closes.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let low_52w = stock_data.closes.iter().cloned().fold(f64::INFINITY, f64::min);
-    let current_price = analysis.current_price;
+pub fn render_metrics(
+    analysis: &StockAnalysis,
+    stock_data: &StockData,
+    time_range: TimeRange,
+) -> Paragraph<'static> {
+    let high = stock_data.closes.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let low = stock_data.closes.iter().cloned().fold(f64::INFINITY, f64::min);
+    let current = analysis.current_price;
 
-    let change_from_high = ((current_price - high_52w) / high_52w) * 100.0;
-    let change_from_low = ((current_price - low_52w) / low_52w) * 100.0;
+    let from_high_pct = ((current - high) / high) * 100.0;
+    let from_low_pct = ((current - low) / low) * 100.0;
 
-    let avg_volume: u64 = if !stock_data.volumes.is_empty() {
-        (stock_data.volumes.iter().sum::<u64>() as f64 / stock_data.volumes.len() as f64) as u64
+    let avg_vol: u64 = if !stock_data.volumes.is_empty() {
+        (stock_data.volumes.iter().sum::<u64>() as f64
+            / stock_data.volumes.len() as f64) as u64
     } else {
         0
     };
 
-    // Calculate volatility based on the standard deviation of returns
     let volatility = calculate_volatility(&stock_data.closes);
 
-    // Format the metrics text with shorter labels to fit in smaller space
-    let metrics_text = format!(
-        "Hi: ${:.2}\nLo: ${:.2}\nHi%: {:.2}%\nLo%: {:.2}%\nVol: {:.2}%\nVol: {}\n\n{}",
-        high_52w,
-        low_52w,
-        change_from_high,
-        change_from_low,
+    let change_str = analysis
+        .recent_change
+        .map_or_else(|| String::from("--"), |c| format!("{:+.2}%", c));
+
+    let sma10_str = analysis.sma_10.map_or_else(|| "--".into(), |v| format!("${:.2}", v));
+    let sma50_str = analysis.sma_50.map_or_else(|| "--".into(), |v| format!("${:.2}", v));
+    let ema20_str = analysis.ema_20.map_or_else(|| "--".into(), |v| format!("${:.2}", v));
+
+    // Colour-coded legend line
+    let legend = "\n  ■Price  ■SMA10  ■SMA50  ■EMA20  ◆Pred";
+
+    let text = format!(
+        " Price:  ${:.2}\n\
+         Change: {}\n\
+         ──────────────────\n\
+         SMA-10: {}\n\
+         SMA-50: {}\n\
+         EMA-20: {}\n\
+         ──────────────────\n\
+         Hi:     ${:.2}\n\
+         Lo:     ${:.2}\n\
+         Hi%:    {:+.2}%\n\
+         Lo%:    {:+.2}%\n\
+         ──────────────────\n\
+         Vol:    {:.2}%\n\
+         AvgVol: {}\n\
+         ──────────────────\n\
+         Range:  {}\
+         {}",
+        current,
+        change_str,
+        sma10_str,
+        sma50_str,
+        ema20_str,
+        high,
+        low,
+        from_high_pct,
+        from_low_pct,
         volatility,
-        avg_volume,
-        time_range.as_str()
+        fmt_volume(avg_vol),
+        time_range.as_str(),
+        legend,
     );
 
-    Paragraph::new(metrics_text)
-        .block(Block::default().borders(Borders::ALL).title("Metrics"))
+    Paragraph::new(text)
+        .block(Block::default().borders(Borders::ALL).title(" Metrics "))
         .style(Style::default().fg(Color::White))
+}
+
+/// Compact volume formatting: 1.2M, 345K, etc.
+pub fn fmt_volume(v: u64) -> String {
+    if v >= 1_000_000 {
+        format!("{:.1}M", v as f64 / 1_000_000.0)
+    } else if v >= 1_000 {
+        format!("{}K", v / 1_000)
+    } else {
+        v.to_string()
+    }
 }

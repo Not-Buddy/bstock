@@ -43,6 +43,7 @@ pub struct App {
     should_refresh_after_save: bool, // Flag to indicate we need to refresh after saving
     channel_rx: Option<std::sync::mpsc::Receiver<AppEvent>>, // Channel receiver for app events
     persistence_manager: PersistenceManager, // Persistence manager
+    pub crosshair_index: Option<usize>, // Crosshair position in detail view
 }
 
 impl App {
@@ -61,6 +62,7 @@ impl App {
             should_refresh_after_save: false,
             channel_rx: None,
             persistence_manager,
+            crosshair_index: None,
         })
     }
 
@@ -87,8 +89,8 @@ impl App {
             }
 
             // Process events from the stored receiver
-            if let Some(ref rx) = self.channel_rx {
-                if let Ok(app_event) = rx.try_recv() {
+            if let Some(ref rx) = self.channel_rx
+                && let Ok(app_event) = rx.try_recv() {
                     match app_event {
                         AppEvent::Update(analysis, stock_data, time_range) => {
                             self.analyses.push(AnalysisWithChartData {
@@ -102,7 +104,6 @@ impl App {
                         }
                     }
                 }
-            }
 
             match self.current_view {
                 View::Main => {
@@ -111,7 +112,7 @@ impl App {
                 View::Detail => {
                     terminal.draw(|f| {
                         if let Some(selected_data) = self.analyses.get(self.selected_index) {
-                            draw_detail_ui(f, selected_data, f.size());
+                            draw_detail_ui(f, selected_data, f.size(), self.crosshair_index);
                         }
                     })?;
                 }
@@ -123,10 +124,10 @@ impl App {
             }
 
             // Handle key events differently based on current view
-            if event::poll(Duration::from_millis(100))? {
-                if let Event::Key(key) = event::read()? {
+            if event::poll(Duration::from_millis(100))?
+                && let Event::Key(key) = event::read()? {
                     match self.current_view {
-                        View::Main | View::Detail => {
+                        View::Main => {
                             match key.code {
                                 KeyCode::Char('q') => return Ok(()),
                                 KeyCode::Char('c') if key.modifiers == event::KeyModifiers::CONTROL => {
@@ -148,13 +149,11 @@ impl App {
                                     if !self.analyses.is_empty()
                                         && self.selected_index < self.analyses.len()
                                     {
-                                        // Change time range to previous option
                                         if self.selected_time_range_index > 0 {
                                             self.selected_time_range_index -= 1;
                                         } else {
-                                            self.selected_time_range_index = TimeRange::all().len() - 1; // Wrap to last
+                                            self.selected_time_range_index = TimeRange::all().len() - 1;
                                         }
-                                        // Update the time range for the currently selected stock
                                         if !self.analyses.is_empty() {
                                             self.analyses[self.selected_index].time_range =
                                                 TimeRange::all()[self.selected_time_range_index];
@@ -165,13 +164,11 @@ impl App {
                                     if !self.analyses.is_empty()
                                         && self.selected_index < self.analyses.len()
                                     {
-                                        // Change time range to next option
                                         if self.selected_time_range_index < TimeRange::all().len() - 1 {
                                             self.selected_time_range_index += 1;
                                         } else {
-                                            self.selected_time_range_index = 0; // Wrap to first
+                                            self.selected_time_range_index = 0;
                                         }
-                                        // Update the time range for the currently selected stock
                                         if !self.analyses.is_empty() {
                                             self.analyses[self.selected_index].time_range =
                                                 TimeRange::all()[self.selected_time_range_index];
@@ -179,25 +176,104 @@ impl App {
                                     }
                                 }
                                 KeyCode::Enter => {
+                                    self.crosshair_index = None; // reset crosshair
                                     self.current_view = View::Detail;
                                 }
                                 KeyCode::Esc => {
                                     match self.current_view {
-                                        View::Edit => self.current_view = View::Main, // Exit edit mode
-                                        View::Detail => self.current_view = View::Main, // Exit detail mode
-                                        View::Main => return Ok(()), // Exit app
+                                        View::Edit => self.current_view = View::Main,
+                                        View::Detail => self.current_view = View::Main,
+                                        View::Main => return Ok(()),
                                     }
                                 }
                                 KeyCode::Char('e') => {
-                                    // Enter edit mode
                                     self.current_view = View::Edit;
-                                    // Initialize editing symbols with current config
                                     self.editing_symbols = self.analyses
                                         .iter()
                                         .map(|a| a.analysis.symbol.clone())
                                         .collect();
                                     self.editing_selected_index = 0;
                                     self.new_symbol_input = String::new();
+                                }
+                                _ => {}
+                            }
+                        }
+                        View::Detail => {
+                            match key.code {
+                                KeyCode::Char('q') => return Ok(()),
+                                KeyCode::Char('c') if key.modifiers == event::KeyModifiers::CONTROL => {
+                                    return Ok(());
+                                }
+                                // Left/Right moves crosshair along data points
+                                KeyCode::Left => {
+                                    if let Some(data) = self.analyses.get(self.selected_index) {
+                                        let n = crate::data::filter_data_by_time_range(
+                                            &data.stock_data, data.time_range,
+                                        ).len();
+                                        if n > 0 {
+                                            let idx = self.crosshair_index.unwrap_or(n / 2);
+                                            self.crosshair_index = Some(if idx > 0 { idx - 1 } else { 0 });
+                                        }
+                                    }
+                                }
+                                KeyCode::Right => {
+                                    if let Some(data) = self.analyses.get(self.selected_index) {
+                                        let n = crate::data::filter_data_by_time_range(
+                                            &data.stock_data, data.time_range,
+                                        ).len();
+                                        if n > 0 {
+                                            let idx = self.crosshair_index.unwrap_or(n / 2);
+                                            self.crosshair_index = Some(
+                                                if idx + 1 < n { idx + 1 } else { n.saturating_sub(1) }
+                                            );
+                                        }
+                                    }
+                                }
+                                // Up/Down changes time range, resets crosshair
+                                KeyCode::Up => {
+                                    self.crosshair_index = None;
+                                    if !self.analyses.is_empty()
+                                        && self.selected_index < self.analyses.len()
+                                    {
+                                        if self.selected_time_range_index > 0 {
+                                            self.selected_time_range_index -= 1;
+                                        } else {
+                                            self.selected_time_range_index = TimeRange::all().len() - 1;
+                                        }
+                                        if !self.analyses.is_empty() {
+                                            self.analyses[self.selected_index].time_range =
+                                                TimeRange::all()[self.selected_time_range_index];
+                                        }
+                                    }
+                                }
+                                KeyCode::Down => {
+                                    self.crosshair_index = None;
+                                    if !self.analyses.is_empty()
+                                        && self.selected_index < self.analyses.len()
+                                    {
+                                        if self.selected_time_range_index < TimeRange::all().len() - 1 {
+                                            self.selected_time_range_index += 1;
+                                        } else {
+                                            self.selected_time_range_index = 0;
+                                        }
+                                        if !self.analyses.is_empty() {
+                                            self.analyses[self.selected_index].time_range =
+                                                TimeRange::all()[self.selected_time_range_index];
+                                        }
+                                    }
+                                }
+                                // Esc: clear crosshair first, then exit detail mode
+                                KeyCode::Esc => {
+                                    if self.crosshair_index.is_some() {
+                                        self.crosshair_index = None;
+                                    } else {
+                                        self.current_view = View::Main;
+                                    }
+                                }
+                                // Enter: back to main view
+                                KeyCode::Enter => {
+                                    self.crosshair_index = None;
+                                    self.current_view = View::Main;
                                 }
                                 _ => {}
                             }
@@ -273,7 +349,6 @@ impl App {
                         }
                     }
                 }
-            }
         }
     }
 }

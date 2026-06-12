@@ -5,7 +5,7 @@ use ratatui::{
 use crate::{
     app::AnalysisWithChartData,
     ui::{
-        chart::create_stock_chart, metrics::render_additional_metrics,
+        metrics::render_metrics,
         selector::render_time_range_selector,
     },
 };
@@ -194,18 +194,21 @@ pub fn draw_ui(f: &mut Frame, analyses: &[AnalysisWithChartData], selected_index
                     f.render_widget(paragraph, main_content_chunks[0]);
 
                     // Render the additional metrics
-                    let metrics = render_additional_metrics(
-                        stock_data,
+                    let metrics = render_metrics(
                         analysis,
+                        stock_data,
                         analysis_with_data.time_range,
                     );
                     f.render_widget(metrics, main_content_chunks[1]);
 
-                    // Render the chart with the selected time range
-                    let chart = create_stock_chart(
-                        analysis,
+                    // Render the chart with the selected time range (Braille Canvas)
+                    let chart = crate::ui::chart::create_price_chart(
                         stock_data,
+                        analysis,
                         analysis_with_data.time_range,
+                        None,
+                        analysis.symbol.as_str(),
+                        main_content_chunks[2].width,
                     );
                     f.render_widget(chart, main_content_chunks[2]);
 
@@ -219,8 +222,23 @@ pub fn draw_ui(f: &mut Frame, analyses: &[AnalysisWithChartData], selected_index
             }
         }
 
-        let help_text = Paragraph::new("Use arrow keys to change pages and 'e' to edit stocks , 'q' or Ctrl-C to quit.")
-            .alignment(Alignment::Center);
-        f.render_widget(help_text, chunks[2]);
+        // ── bottom bar: chart legend + help ─────────────────
+        let bottom = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),  // legend
+                Constraint::Length(1),  // help
+            ])
+            .split(chunks[2]);
+
+        let legend = crate::ui::chart::create_legend_line();
+        f.render_widget(legend, bottom[0]);
+
+        let help = Paragraph::new(
+            "←→ select stock │ ↑↓ time range │ Enter details │ e edit │ q quit",
+        )
+        .alignment(Alignment::Center)
+        .style(Style::default().fg(Color::DarkGray));
+        f.render_widget(help, bottom[1]);
     }
 }

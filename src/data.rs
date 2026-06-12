@@ -20,55 +20,78 @@ impl TimeRange {
 
     pub fn as_str(&self) -> &str {
         match self {
-            TimeRange::OneDay => "1D",
-            TimeRange::FiveDays => "5D",
+            TimeRange::OneDay => "1W",
+            TimeRange::FiveDays => "2W",
             TimeRange::OneMonth => "1M",
             TimeRange::SixMonths => "6M",
         }
     }
 }
 
-// Function to filter stock data based on selected time range
+/// OHLC data for a single bar, filtered to a time window.
+#[derive(Clone, Debug)]
+pub struct FilteredBar {
+    pub timestamp: i64,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub volume: u64,
+}
+
+/// Filter stock data to the last N bars for the given time range.
+pub fn filter_bars(stock_data: &StockData, time_range: TimeRange) -> Vec<FilteredBar> {
+    let total = stock_data.closes.len();
+    let n = match time_range {
+        TimeRange::OneDay => 5usize.min(total),     // ~1 week
+        TimeRange::FiveDays => 10usize.min(total),  // ~2 weeks
+        TimeRange::OneMonth => 30usize.min(total),
+        TimeRange::SixMonths => 180usize.min(total),
+    };
+    let start = total.saturating_sub(n);
+
+    (start..total)
+        .map(|i| FilteredBar {
+            timestamp: stock_data.timestamps[i],
+            open: stock_data.opens[i],
+            high: stock_data.highs[i],
+            low: stock_data.lows[i],
+            close: stock_data.closes[i],
+            volume: stock_data.volumes[i],
+        })
+        .collect()
+}
+
+/// Legacy — returns just closing prices for a time window.
 pub fn filter_data_by_time_range(stock_data: &StockData, time_range: TimeRange) -> Vec<f64> {
-    // Since we don't have the exact timestamp for each close value, we'll take the last N values
-    // where N corresponds to the time range (approximate)
     let total_points = stock_data.closes.len();
     let points_to_show = match time_range {
-        TimeRange::OneDay => std::cmp::min(2, total_points),     // Last day (at least 2 points)
-        TimeRange::FiveDays => std::cmp::min(5, total_points),   // Last 5 days
-        TimeRange::OneMonth => std::cmp::min(30, total_points),  // Last 30 days
-        TimeRange::SixMonths => std::cmp::min(180, total_points), // Last ~6 months
+        TimeRange::OneDay => std::cmp::min(5, total_points),    // ~1 week
+        TimeRange::FiveDays => std::cmp::min(10, total_points), // ~2 weeks
+        TimeRange::OneMonth => std::cmp::min(30, total_points),
+        TimeRange::SixMonths => std::cmp::min(180, total_points),
     };
-
-    // Take the last N points based on the time range
     let start_index = total_points.saturating_sub(points_to_show);
-
     stock_data.closes[start_index..].to_vec()
 }
 
-// Helper function to calculate volatility (standard deviation of returns)
+/// Calculate volatility (standard deviation of returns).
 pub fn calculate_volatility(prices: &[f64]) -> f64 {
     if prices.len() < 2 {
         return 0.0;
     }
-
-    // Calculate daily returns
-    let returns: Vec<f64> = prices.windows(2)
+    let returns: Vec<f64> = prices
+        .windows(2)
         .map(|w| if w[0] != 0.0 { (w[1] - w[0]) / w[0] } else { 0.0 })
         .collect();
-
     if returns.is_empty() {
         return 0.0;
     }
-
-    // Calculate mean return
     let mean_return = returns.iter().sum::<f64>() / returns.len() as f64;
-
-    // Calculate variance
-    let variance = returns.iter()
+    let variance = returns
+        .iter()
         .map(|r| (r - mean_return).powi(2))
-        .sum::<f64>() / returns.len() as f64;
-
-    // Standard deviation (volatility) as percentage
+        .sum::<f64>()
+        / returns.len() as f64;
     variance.sqrt() * 100.0
 }

@@ -18,10 +18,13 @@ pub async fn fetch_stock_data(symbol: &str, period_days: i64) -> Result<StockDat
 
     let quotes = response.quotes()
         .map_err(AppError::ApiError)?;
+
     for bar in quotes {
-        // FIX: Convert u64 timestamp to i64
         stock_data.add_point(
-            bar.timestamp as i64, // Cast from u64 to i64
+            bar.timestamp as i64,
+            bar.open,
+            bar.high,
+            bar.low,
             bar.close,
             bar.volume,
         );

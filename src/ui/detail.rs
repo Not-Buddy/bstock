@@ -1,119 +1,133 @@
 use ratatui::{
-    prelude::{Constraint, Direction, Layout, Rect, Alignment, Style, Color},
-    widgets::{Block, Borders, Paragraph, BorderType},
+    prelude::{Constraint, Direction, Layout, Rect, Alignment, Style, Color, text::Span},
+    widgets::{Paragraph},
     Frame,
 };
-use crate::lib::stock_data::StockData;
 
 use crate::app::AnalysisWithChartData;
-use crate::data::{filter_data_by_time_range, TimeRange};
+use crate::data::{filter_bars, TimeRange};
 
 use super::{chart, metrics};
 
-/// Draw Y-axis labels for the chart
-fn draw_y_axis_labels(f: &mut Frame, area: Rect, stock_data: &StockData, time_range: TimeRange) {
-    // Filter the stock data based on the selected time range
-    let filtered_prices = filter_data_by_time_range(stock_data, time_range);
-
-    let max_price = if !filtered_prices.is_empty() {
-        *filtered_prices.iter().max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)).unwrap_or(&stock_data.closes.last().copied().unwrap_or(0.0))
-    } else {
-        stock_data.closes.last().copied().unwrap_or(0.0)
-    };
-
-    let min_price = if !filtered_prices.is_empty() {
-        *filtered_prices.iter().min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)).unwrap_or(&stock_data.closes.last().copied().unwrap_or(0.0))
-    } else {
-        stock_data.closes.last().copied().unwrap_or(0.0)
-    };
-
-    // Calculate a few key values to display as Y-axis labels
-    let range = max_price - min_price;
-    let y_bounds_min = if range == 0.0 { min_price * 0.8 } else { min_price - 0.1 * range };
-    let y_bounds_max = if range == 0.0 { max_price * 1.2 } else { max_price + 0.1 * range };
-
-    // Create Y-axis labels at 4 key positions: max, 3/4, 1/2, 1/4, and min
-    let step = (y_bounds_max - y_bounds_min) / 4.0;
-    let labels = [
-        format!("${:.2}", y_bounds_max),
-        format!("${:.2}", y_bounds_max - step),
-        format!("${:.2}", y_bounds_max - 2.0 * step),
-        format!("${:.2}", y_bounds_max - 3.0 * step),
-        format!("${:.2}", y_bounds_min),
-    ];
-
-    // Create a vertical layout for the Y-axis labels
-    let y_axis_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-            Constraint::Min(0),  // Remaining space
-        ])
-        .split(area);
-
-    // Render each label
-    for (i, (label, chunk)) in labels.iter().zip(y_axis_layout.iter()).enumerate() {
-        if i < y_axis_layout.len() {
-            let paragraph = Paragraph::new(label.as_str())
-                .style(Style::default().fg(Color::Cyan))
-                .alignment(Alignment::Right);
-            f.render_widget(paragraph, *chunk);
-        }
+/// Y-axis price labels (ratatui text — always sharp & readable).
+fn draw_y_axis(f: &mut Frame, area: Rect, y_lo: f64, y_hi: f64) {
+    let labels = chart::y_axis_labels(y_lo, y_hi, 5);
+    let chunks = Layout::default().direction(Direction::Vertical).constraints([
+        Constraint::Percentage(20), Constraint::Percentage(20),
+        Constraint::Percentage(20), Constraint::Percentage(20),
+        Constraint::Min(0),
+    ]).split(area);
+    for (label, chunk) in labels.iter().zip(chunks.iter()) {
+        f.render_widget(
+            Paragraph::new(label.as_str()).style(Style::default().fg(Color::Cyan)).alignment(Alignment::Right),
+            *chunk,
+        );
     }
 }
 
-/// Renders the user interface for the detailed view.
-pub fn draw_detail_ui(f: &mut Frame, data: &AnalysisWithChartData, area: Rect) {
-    // Create a layout with header area at the top
-    let main_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),      // Header with stock symbol
-            Constraint::Min(0),         // Main content area
-        ])
-        .split(area);
+/// X-axis date labels evenly distributed under the chart.
+fn draw_x_axis(f: &mut Frame, area: Rect, ts: &[i64], n: usize, time_range: TimeRange) {
+    if n == 0 || ts.is_empty() { return; }
+    let start = ts.len().saturating_sub(n);
+    let tss = &ts[start..];
+    let positions: Vec<usize> = if n <= 5 { (0..n).collect() }
+        else { (0..=4).map(|i| ((i as f64) * (n - 1) as f64 / 4.0).round() as usize).collect() };
+    let labels: Vec<String> = positions.iter().filter_map(|&pos| {
+        let ts_val = *tss.get(pos)?;
+        let dt = chrono::DateTime::from_timestamp(ts_val, 0)?;
+        Some(match time_range {
+            TimeRange::OneDay | TimeRange::FiveDays => dt.format("%m/%d").to_string(),
+            TimeRange::OneMonth => dt.format("%m/%d").to_string(),
+            TimeRange::SixMonths => dt.format("%b").to_string(),
+        })
+    }).collect();
+    let w = area.width as usize;
+    let spacer = " ".repeat(w.saturating_sub(labels.iter().map(|s| s.len() + 2).sum::<usize>()).max(1));
+    let spans: Vec<Span> = labels.iter().enumerate().flat_map(|(i, l)| {
+        let mut v = vec![];
+        if i > 0 { v.push(Span::raw(spacer.clone())); }
+        v.push(Span::styled(l.clone(), Style::default().fg(Color::DarkGray)));
+        v
+    }).collect();
+    f.render_widget(Paragraph::new(ratatui::text::Line::from(spans)).alignment(Alignment::Center), area);
+}
 
-    // Draw the header with stock symbol in top-right
-    let header_block = Block::default()
-        .borders(Borders::BOTTOM)
-        .border_type(BorderType::Plain);
-    f.render_widget(header_block, main_layout[0]);
+/// Renders the detail view: header, chart, volume, crosshair info, metrics.
+pub fn draw_detail_ui(
+    f: &mut Frame,
+    data: &AnalysisWithChartData,
+    area: Rect,
+    crosshair_index: Option<usize>,
+) {
+    let bars = filter_bars(&data.stock_data, data.time_range);
+    let n_bars = bars.len();
+    let all_y: Vec<f64> = bars.iter().flat_map(|b| [b.high, b.low]).collect();
+    let y_max = all_y.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let y_min = all_y.iter().cloned().fold(f64::INFINITY, f64::min);
+    let (y_lo, y_hi, _step) = chart::nice_y_bounds(y_min, y_max);
 
-    // Extract and display the stock symbol (from the analysis inside AnalysisWithChartData)
-    // Create a paragraph widget for the stock symbol in top-right
-    let stock_symbol_widget = Paragraph::new(data.analysis.symbol.clone())
-        .style(Style::default().fg(Color::Yellow))
-        .alignment(Alignment::Right);
+    // ── title ───────────────────────────────────────────
+    let v = Layout::default().direction(Direction::Vertical).constraints([
+        Constraint::Length(1), Constraint::Min(0),
+    ]).split(area);
+    f.render_widget(
+        Paragraph::new(format!(" {}  |  {}  |  ←→ crosshair  ↑↓ range  Esc back ", data.analysis.symbol, data.time_range.as_str()))
+            .style(Style::default().fg(Color::Yellow)),
+        v[0],
+    );
 
-    f.render_widget(stock_symbol_widget, main_layout[0]);
+    // ── body ────────────────────────────────────────────
+    let body = Layout::default().direction(Direction::Horizontal).constraints([
+        Constraint::Length(8), Constraint::Min(0), Constraint::Length(22),
+    ]).split(v[1]);
 
-    // Split the main content area horizontally - graph area on left, metrics on right
-    let content_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(70),  // Graph area on left
-            Constraint::Percentage(30),  // Metrics on right
-        ])
-        .split(main_layout[1]);
+    let mut cc: Vec<Constraint> = vec![Constraint::Min(8), Constraint::Percentage(18)]; // chart + volume
+    cc.push(Constraint::Length(1)); // x-axis
+    cc.push(Constraint::Length(1)); // legend
+    if crosshair_index.is_some() { cc.push(Constraint::Length(1)); }
+    let chart_col = Layout::default().direction(Direction::Vertical).constraints(cc).split(body[1]);
 
-    // Split the graph area vertically to have Y-axis labels on left and chart on right
-    let graph_layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(8),       // Y-axis labels on left
-            Constraint::Min(0),          // Chart on right
-        ])
-        .split(content_chunks[0]);
+    // ── Y-axis ──────────────────────────────────────────
+    draw_y_axis(f, body[0], y_lo, y_hi);
 
-    // Draw the Y-axis labels on the left
-    draw_y_axis_labels(f, graph_layout[0], &data.stock_data, data.time_range);
+    // ── Price chart ─────────────────────────────────────
+    let title = format!(" {} | {} ", data.analysis.symbol, data.time_range.as_str());
+    let xhair_x = crosshair_index.map(|i| i as f64);
+    let price_canvas = chart::create_price_chart(
+        &data.stock_data, &data.analysis, data.time_range, xhair_x, &title,
+        chart_col[0].width,
+    );
+    f.render_widget(price_canvas, chart_col[0]);
 
-    // Draw the chart on the right (after the Y-axis labels)
-    chart::draw_chart(f, &data.stock_data, graph_layout[1], data.time_range);
+    // ── Volume chart ────────────────────────────────────
+    f.render_widget(
+        chart::create_volume_chart(&data.stock_data, data.time_range, chart_col[1].width),
+        chart_col[1],
+    );
 
-    // Draw the metrics on the right side of main content
-    metrics::draw_metrics(f, &data.stock_data, content_chunks[1]);
+    // ── X-axis ──────────────────────────────────────────
+    draw_x_axis(f, chart_col[2], &data.stock_data.timestamps, n_bars, data.time_range);
+
+    // ── Legend ──────────────────────────────────────────
+    f.render_widget(chart::create_legend_line(), chart_col[3]);
+
+    // ── Crosshair info ──────────────────────────────────
+    if let Some(idx) = crosshair_index
+        && let Some(snap) = chart::crosshair_info(&data.stock_data, data.time_range, idx)
+    {
+        let info = Paragraph::new(format!(
+            " {} │ ${:.2} │ O:${:.2} H:${:.2} L:${:.2} C:${:.2} │ Vol: {} │ SMA10: {} SMA50: {} EMA20: {} │ {}/{} ",
+            snap.date, snap.price,
+            bars[idx].open, bars[idx].high, bars[idx].low, bars[idx].close,
+            metrics::fmt_volume(snap.volume),
+            snap.sma10.map_or("--".into(), |v| format!("${:.2}", v)),
+            snap.sma50.map_or("--".into(), |v| format!("${:.2}", v)),
+            snap.ema20.map_or("--".into(), |v| format!("${:.2}", v)),
+            snap.index + 1, snap.total,
+        )).style(Style::default().fg(Color::LightYellow)).alignment(Alignment::Center);
+        f.render_widget(info, chart_col[4]);
+    }
+
+    // ── Metrics ─────────────────────────────────────────
+    metrics::draw_metrics(f, &data.analysis, &data.stock_data, body[2], data.time_range);
 }

@@ -6,8 +6,7 @@ use ratatui::{
         canvas::{Canvas, Line},
     },
 };
-use crate::data::{filter_bars, TimeRange};
-use crate::lib::{analysis::StockAnalysis, stock_data::StockData};
+use crate::lib::analysis::StockAnalysis;
 
 type CanvasFn<'a> = Box<dyn Fn(&mut ratatui::widgets::canvas::Context<'_>) + 'a>;
 
@@ -22,10 +21,15 @@ const CANDLE_UP: Color = Color::Green;
 const CANDLE_DOWN: Color = Color::Red;
 const VOL_UP: Color = Color::Green;
 const VOL_DOWN: Color = Color::Red;
+const PREV_CLOSE_C: Color = Color::LightBlue;
 
 // ── nice-number axis ───────────────────────────────────────────
 
 pub fn nice_y_bounds(min_val: f64, max_val: f64) -> (f64, f64, f64) {
+    // Guard against empty data (INFINITY), NaN, or degenerate ranges
+    if !min_val.is_finite() || !max_val.is_finite() || max_val < min_val {
+        return (0.0, 100.0, 25.0);
+    }
     if (max_val - min_val).abs() < 1e-9 {
         let c = min_val;
         return (c * 0.95, c * 1.05, c * 0.05);
@@ -58,11 +62,17 @@ pub fn y_axis_labels(lo: f64, hi: f64, n: usize) -> Vec<String> {
 // ── helpers ────────────────────────────────────────────────────
 
 fn align_overlay(overlay: &[f64], full_start: usize, n: usize, period: usize) -> Vec<(f64, f64)> {
-    let first = full_start.saturating_sub(period);
-    let last = (full_start + n).saturating_sub(period).min(overlay.len());
+    align_overlay_for_bounds(overlay, full_start, n, period)
+}
+
+/// Public version so detail.rs can compute unified y-bounds.
+pub fn align_overlay_for_bounds(overlay: &[f64], full_start: usize, n: usize, period: usize) -> Vec<(f64, f64)> {
+    // overlay[0] = SMA of closes[0..period] → corresponds to closes[period-1]
+    let first = full_start.saturating_sub(period - 1);
+    let last = (full_start + n).saturating_sub(period - 1).min(overlay.len());
     if first >= last { return vec![]; }
     (first..last)
-        .map(|oi| ((oi + period - full_start) as f64, overlay[oi]))
+        .map(|oi| ((oi + period - 1 - full_start) as f64, overlay[oi]))
         .collect()
 }
 
@@ -125,12 +135,14 @@ fn draw_candle(
     ctx.draw(&Line { x1: x, y1: low, x2: x, y2: high, color });
 
     // Body: step by dot_x * 0.5 to guarantee solid fill (slight overlap)
-    let half_width = (gap_x * 0.4).max(dot_x * 0.5); // 80 % width, minimum 1 dot
-    let step = dot_x * 0.5;
+    let half_width = gap_x.max(dot_x) * 0.4;
+    let step = (dot_x * 0.5).max(gap_x * 0.01).max(0.01); // prevent infinite loop
     let mut dx = -half_width;
-    while dx <= half_width {
+    let mut iters = 0;
+    while dx <= half_width && iters < 1000 {
         ctx.draw(&Line { x1: x + dx, y1: bot, x2: x + dx, y2: top, color });
         dx += step;
+        iters += 1;
     }
 }
 
@@ -142,35 +154,35 @@ fn draw_vol_bar(
     gap_x: f64,
 ) {
     let color = if up { VOL_UP } else { VOL_DOWN };
-    let half_width = (gap_x * 0.4).max(dot_x * 0.5);
-    let step = dot_x * 0.5;
+    let half_width = gap_x.max(dot_x) * 0.4;
+    let step = (dot_x * 0.5).max(gap_x * 0.01).max(0.01);
     let mut dx = -half_width;
-    while dx <= half_width {
+    let mut iters = 0;
+    while dx <= half_width && iters < 1000 {
         ctx.draw(&Line { x1: x + dx, y1: 0.0, x2: x + dx, y2: h, color });
         dx += step;
+        iters += 1;
     }
 }
 
 // ── price chart ────────────────────────────────────────────────
 
 pub fn create_price_chart<'a>(
-    stock_data: &'a StockData,
+    bars: &'a [crate::data::FilteredBar],
+    full_data_len: usize,
     analysis: &'a StockAnalysis,
-    time_range: TimeRange,
     crosshair_x: Option<f64>,
     title: &'a str,
     canvas_char_width: u16,
+    prev_close: Option<f64>,
 ) -> Canvas<'a, CanvasFn<'a>> {
-    let bars = filter_bars(stock_data, time_range);
     let n = bars.len();
-    let full_start = stock_data.closes.len().saturating_sub(n);
+    let full_start = full_data_len.saturating_sub(n);
 
-    let sma10_full = stock_data.sma(10).map(|a| a.to_vec()).unwrap_or_default();
-    let sma50_full = stock_data.sma(50).map(|a| a.to_vec()).unwrap_or_default();
-    let ema20_full = stock_data.ema(20).map(|a| a.to_vec()).unwrap_or_default();
-    let sma10_pts = align_overlay(&sma10_full, full_start, n, 10);
-    let sma50_pts = align_overlay(&sma50_full, full_start, n, 50);
-    let ema20_pts = align_overlay(&ema20_full, full_start, n, 20);
+    // Use cached SMA/EMA series (computed once at fetch time)
+    let sma10_pts = align_overlay(&analysis.sma10_values, full_start, n, 10);
+    let sma50_pts = align_overlay(&analysis.sma50_values, full_start, n, 50);
+    let ema20_pts = align_overlay(&analysis.ema20_values, full_start, n, 20);
 
     // Predictions
     let pred_pts: Vec<(f64, f64)> = analysis.predictions.iter().enumerate()
@@ -215,6 +227,26 @@ pub fn create_price_chart<'a>(
                 ctx.draw(&Line { x1: gx, y1: y_lo, x2: gx, y2: y_hi, color: GRID_C });
             }
 
+            // ── previous close ────────────────────────────
+            if let Some(pc) = prev_close
+                && pc >= y_lo && pc <= y_hi
+            {
+                let dash = x_max / 60.0;
+                let mut sx = 0.0;
+                let mut on = false;
+                while sx < x_max {
+                    if on {
+                        ctx.draw(&Line {
+                            x1: sx, y1: pc,
+                            x2: (sx + dash).min(x_max), y2: pc,
+                            color: PREV_CLOSE_C,
+                        });
+                    }
+                    sx += dash;
+                    on = !on;
+                }
+            }
+
             // ── SMA-50 ────────────────────────────────────
             if sma50_pts.len() > 1 {
                 draw_series(ctx, &sma50_pts, SMA50_C);
@@ -252,11 +284,9 @@ pub fn create_price_chart<'a>(
 // ── volume chart (solid bars via HalfBlock + dense lines) ──────
 
 pub fn create_volume_chart<'a>(
-    stock_data: &'a StockData,
-    time_range: TimeRange,
+    bars: &'a [crate::data::FilteredBar],
     canvas_char_width: u16,
 ) -> Canvas<'a, CanvasFn<'a>> {
-    let bars = filter_bars(stock_data, time_range);
     let n = bars.len();
     let max_vol = bars.iter().map(|b| b.volume).max().unwrap_or(1);
     let x_max = (n as f64 - 1.0).max(1.0);
@@ -284,6 +314,7 @@ pub fn create_legend_line() -> Paragraph<'static> {
         ("─ SMA50 ", SMA50_C),
         ("─ EMA20 ", EMA20_C),
         ("╌ Pred ", PRED_C),
+        ("╌ Prev ", PREV_CLOSE_C),
         ("│", Color::Reset),
         (" ▲ Vol ", VOL_UP),
         (" ▼ Vol ", VOL_DOWN),
@@ -310,21 +341,21 @@ pub struct CrosshairSnapshot {
 }
 
 pub fn crosshair_info(
-    stock_data: &StockData,
-    time_range: TimeRange,
+    bars: &[crate::data::FilteredBar],
+    full_data_len: usize,
+    analysis: &StockAnalysis,
     index: usize,
 ) -> Option<CrosshairSnapshot> {
-    let bars = filter_bars(stock_data, time_range);
     let n = bars.len();
     if n == 0 || index >= n { return None; }
     let bar = &bars[index];
     let date = chrono::DateTime::from_timestamp(bar.timestamp, 0)
         .map(|dt| dt.format("%Y-%m-%d").to_string())
         .unwrap_or_else(|| "?".into());
-    let full_start = stock_data.closes.len().saturating_sub(n);
-    let full_idx = full_start + index;
-    let sma10 = stock_data.sma(10).and_then(|a| a.to_vec().get(full_idx.saturating_sub(10)).copied());
-    let sma50 = stock_data.sma(50).and_then(|a| a.to_vec().get(full_idx.saturating_sub(50)).copied());
-    let ema20 = stock_data.ema(20).and_then(|a| a.to_vec().get(full_idx.saturating_sub(20)).copied());
+    let full_idx = full_data_len.saturating_sub(n) + index;
+    // Use cached SMA/EMA from analysis instead of recomputing
+    let sma10 = analysis.sma10_values.get(full_idx.saturating_sub(9)).copied();
+    let sma50 = analysis.sma50_values.get(full_idx.saturating_sub(49)).copied();
+    let ema20 = analysis.ema20_values.get(full_idx.saturating_sub(19)).copied();
     Some(CrosshairSnapshot { date, price: bar.close, sma10, sma50, ema20, volume: bar.volume, index, total: n })
 }

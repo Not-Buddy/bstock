@@ -1,34 +1,77 @@
 use crate::lib::stock_data::StockData;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(dead_code)]
 pub enum TimeRange {
-    OneDay = 1,
-    FiveDays = 5,
-    OneMonth = 30,
-    SixMonths = 180,
+    OneDay,
+    OneWeek,
+    OneMonth,
+    ThreeMonths,
+    SixMonths,
+    YearToDate,
+    OneYear,
+    TwoYears,
+    FiveYears,
+    TenYears,
+    All,
 }
 
 impl TimeRange {
-    pub fn all() -> Vec<TimeRange> {
-        vec![
+    pub fn all() -> &'static [TimeRange] {
+        &[
             TimeRange::OneDay,
-            TimeRange::FiveDays,
-            TimeRange::OneMonth,
+            TimeRange::ThreeMonths,
             TimeRange::SixMonths,
+            TimeRange::YearToDate,
+            TimeRange::OneYear,
+            TimeRange::TwoYears,
+            TimeRange::FiveYears,
+            TimeRange::TenYears,
+            TimeRange::All,
         ]
     }
 
     pub fn as_str(&self) -> &str {
         match self {
-            TimeRange::OneDay => "1W",
-            TimeRange::FiveDays => "2W",
+            TimeRange::OneDay => "1D",
+            TimeRange::OneWeek => "1W",
             TimeRange::OneMonth => "1M",
+            TimeRange::ThreeMonths => "3M",
             TimeRange::SixMonths => "6M",
+            TimeRange::YearToDate => "YTD",
+            TimeRange::OneYear => "1Y",
+            TimeRange::TwoYears => "2Y",
+            TimeRange::FiveYears => "5Y",
+            TimeRange::TenYears => "10Y",
+            TimeRange::All => "All",
         }
+    }
+
+    /// Yahoo Finance v8 API (range, interval) pairs.
+    pub fn yahoo_params(&self) -> (&'static str, &'static str) {
+        match self {
+            TimeRange::OneDay => ("1d", "1m"),
+            TimeRange::OneWeek => ("5d", "5m"),
+            TimeRange::OneMonth => ("1mo", "1h"),
+            TimeRange::ThreeMonths => ("3mo", "1d"),
+            TimeRange::SixMonths => ("6mo", "1d"),
+            TimeRange::YearToDate => ("ytd", "1d"),
+            TimeRange::OneYear => ("1y", "1d"),
+            TimeRange::TwoYears => ("2y", "1d"),
+            TimeRange::FiveYears => ("5y", "1wk"),
+            TimeRange::TenYears => ("10y", "1mo"),
+            TimeRange::All => ("max", "1mo"),
+        }
+    }
+
+    /// Whether this is an intraday range (sub-hourly or sub-daily intervals).
+    #[allow(dead_code)]
+    pub fn is_intraday(&self) -> bool {
+        matches!(self, TimeRange::OneDay | TimeRange::OneWeek | TimeRange::OneMonth)
     }
 }
 
-/// OHLC data for a single bar, filtered to a time window.
+/// OHLC data for a single bar.
 #[derive(Clone, Debug)]
 pub struct FilteredBar {
     pub timestamp: i64,
@@ -39,18 +82,10 @@ pub struct FilteredBar {
     pub volume: u64,
 }
 
-/// Filter stock data to the last N bars for the given time range.
-pub fn filter_bars(stock_data: &StockData, time_range: TimeRange) -> Vec<FilteredBar> {
+/// Return all bars — the API now provides the correct window via range/interval.
+pub fn filter_bars(stock_data: &StockData, _time_range: TimeRange) -> Vec<FilteredBar> {
     let total = stock_data.closes.len();
-    let n = match time_range {
-        TimeRange::OneDay => 5usize.min(total),     // ~1 week
-        TimeRange::FiveDays => 10usize.min(total),  // ~2 weeks
-        TimeRange::OneMonth => 30usize.min(total),
-        TimeRange::SixMonths => 180usize.min(total),
-    };
-    let start = total.saturating_sub(n);
-
-    (start..total)
+    (0..total)
         .map(|i| FilteredBar {
             timestamp: stock_data.timestamps[i],
             open: stock_data.opens[i],
@@ -60,19 +95,6 @@ pub fn filter_bars(stock_data: &StockData, time_range: TimeRange) -> Vec<Filtere
             volume: stock_data.volumes[i],
         })
         .collect()
-}
-
-/// Legacy — returns just closing prices for a time window.
-pub fn filter_data_by_time_range(stock_data: &StockData, time_range: TimeRange) -> Vec<f64> {
-    let total_points = stock_data.closes.len();
-    let points_to_show = match time_range {
-        TimeRange::OneDay => std::cmp::min(5, total_points),    // ~1 week
-        TimeRange::FiveDays => std::cmp::min(10, total_points), // ~2 weeks
-        TimeRange::OneMonth => std::cmp::min(30, total_points),
-        TimeRange::SixMonths => std::cmp::min(180, total_points),
-    };
-    let start_index = total_points.saturating_sub(points_to_show);
-    stock_data.closes[start_index..].to_vec()
 }
 
 /// Calculate volatility (standard deviation of returns).

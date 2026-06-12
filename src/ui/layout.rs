@@ -10,7 +10,14 @@ use crate::{
     },
 };
 
-pub fn draw_ui(f: &mut Frame, analyses: &[AnalysisWithChartData], selected_index: usize) {
+pub fn draw_ui(
+    f: &mut Frame,
+    analyses: &[AnalysisWithChartData],
+    selected_index: usize,
+    loading_total: usize,
+    loading_done: usize,
+    loading_errors: &[String],
+) {
     let size = f.size();
 
     // Check if terminal is too small and display overlay if needed
@@ -73,7 +80,45 @@ pub fn draw_ui(f: &mut Frame, analyses: &[AnalysisWithChartData], selected_index
         f.render_widget(title, chunks[0]);
 
         if num_stocks == 0 {
-            let text = Paragraph::new("Loading data...").alignment(Alignment::Center);
+            let loading = loading_total > 0;
+            let done = loading_done >= loading_total && loading_total > 0;
+            let msg = if loading {
+                let pct = if loading_total > 0 {
+                    loading_done * 100 / loading_total
+                } else {
+                    0
+                };
+                let bar_width = 40usize;
+                let filled = bar_width * loading_done / loading_total.max(1);
+                let bar = format!(
+                    "▐{}{}▌",
+                    "█".repeat(filled),
+                    "░".repeat(bar_width.saturating_sub(filled))
+                );
+                let mut text = format!(
+                    "Fetching stock data…\n\n{}  {}/{}  ({}%)\n",
+                    bar, loading_done, loading_total, pct
+                );
+                if done
+                    && !loading_errors.is_empty() {
+                        text.push_str("\n── ERRORS ──────────────────────────────\n");
+                        for (i, err) in loading_errors.iter().enumerate() {
+                            let truncated = if err.len() > 80 {
+                                format!("{}…", &err[..77])
+                            } else {
+                                err.clone()
+                            };
+                            text.push_str(&format!("  {}. {}\n", i + 1, truncated));
+                        }
+                        text.push_str("────────────────────────────────────────\n");
+                        text.push_str("\nNo data loaded. Check your connection or try again.\n");
+                    }
+                text.push_str("\nPress q to quit");
+                text
+            } else {
+                "Loading data…".into()
+            };
+            let text = Paragraph::new(msg).alignment(Alignment::Center);
             f.render_widget(text, chunks[1]);
             return;
         }
@@ -177,15 +222,15 @@ pub fn draw_ui(f: &mut Frame, analyses: &[AnalysisWithChartData], selected_index
                         ratatui::text::Line::from("Predictions:"),
                         ratatui::text::Line::from(format!(
                             "Day 1: ${:.2}",
-                            analysis.predictions[0]
+                            analysis.predictions.first().copied().unwrap_or(0.0)
                         )),
                         ratatui::text::Line::from(format!(
                             "Day 2: ${:.2}",
-                            analysis.predictions[1]
+                            analysis.predictions.get(1).copied().unwrap_or(0.0)
                         )),
                         ratatui::text::Line::from(format!(
                             "Day 3: ${:.2}",
-                            analysis.predictions[2]
+                            analysis.predictions.get(2).copied().unwrap_or(0.0)
                         )),
                     ];
 
@@ -202,13 +247,17 @@ pub fn draw_ui(f: &mut Frame, analyses: &[AnalysisWithChartData], selected_index
                     f.render_widget(metrics, main_content_chunks[1]);
 
                     // Render the chart with the selected time range (Braille Canvas)
+                    let bars = crate::data::filter_bars(stock_data, analysis_with_data.time_range);
+                    let full_len = stock_data.closes.len();
+                    let prev_close = if bars.len() >= 2 {
+                        Some(bars[bars.len() - 2].close)
+                    } else {
+                        None
+                    };
                     let chart = crate::ui::chart::create_price_chart(
-                        stock_data,
-                        analysis,
-                        analysis_with_data.time_range,
-                        None,
-                        analysis.symbol.as_str(),
-                        main_content_chunks[2].width,
+                        &bars, full_len, analysis,
+                        None, analysis.symbol.as_str(),
+                        main_content_chunks[2].width, prev_close,
                     );
                     f.render_widget(chart, main_content_chunks[2]);
 
@@ -222,23 +271,47 @@ pub fn draw_ui(f: &mut Frame, analyses: &[AnalysisWithChartData], selected_index
             }
         }
 
-        // ── bottom bar: chart legend + help ─────────────────
+        // ── bottom bar: chart legend + help + loading indicator ──
         let bottom = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1),  // legend
-                Constraint::Length(1),  // help
+                Constraint::Length(1),  // help + loading
             ])
             .split(chunks[2]);
 
         let legend = crate::ui::chart::create_legend_line();
         f.render_widget(legend, bottom[0]);
 
+        // Help row: left-aligned help text, right-aligned loading indicator
+        let help_row = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(0), Constraint::Length(30)])
+            .split(bottom[1]);
+
         let help = Paragraph::new(
             "←→ select stock │ ↑↓ time range │ Enter details │ e edit │ q quit",
         )
-        .alignment(Alignment::Center)
+        .alignment(Alignment::Left)
         .style(Style::default().fg(Color::DarkGray));
-        f.render_widget(help, bottom[1]);
+        f.render_widget(help, help_row[0]);
+
+        if loading_total > 0 && loading_done < loading_total {
+            let bar_w = 12usize;
+            let filled = bar_w * loading_done / loading_total.max(1);
+            let spinner = ['◐', '◓', '◑', '◒'][(loading_done * 2) % 4];
+            let load_text = format!(
+                " {} ▐{}{}▌ {}/{} ",
+                spinner,
+                "█".repeat(filled),
+                "░".repeat(bar_w.saturating_sub(filled)),
+                loading_done,
+                loading_total,
+            );
+            let load_widget = Paragraph::new(load_text)
+                .alignment(Alignment::Right)
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            f.render_widget(load_widget, help_row[1]);
+        }
     }
 }

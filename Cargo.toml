@@ -15,10 +15,10 @@ ratatui = { version = "0.24.0", features = ["all-widgets"] }
 crossterm = "0.27.0"
 yahoo_finance_api = "2.0"
 chrono = "0.4"
-time = "0.3"
 ndarray = { version = "0.15", features = ["approx"] }
 thiserror = "1.0"
 directories = "5.0"
+time = "0.3"
 
 [dev-dependencies]
 approx = "0.4.0"

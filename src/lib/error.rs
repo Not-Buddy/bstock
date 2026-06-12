@@ -2,15 +2,18 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("Failed to read config file")]
-    ConfigReadError(std::io::Error),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
 
     #[error("Failed to parse config file")]
-    ConfigParseError(serde_json::Error),
+    ConfigParseError(#[from] serde_json::Error),
 
-    #[error("Failed to fetch stock data")]
-    ApiError(yahoo_finance_api::YahooError),
+    #[error("Yahoo API error: {0}")]
+    ApiError(String),
+}
 
-    #[error("IO Error")]
-    Io(std::io::Error),
+impl From<yahoo_finance_api::YahooError> for AppError {
+    fn from(e: yahoo_finance_api::YahooError) -> Self {
+        AppError::ApiError(e.to_string())
+    }
 }

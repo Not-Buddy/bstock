@@ -60,7 +60,7 @@ impl PersistenceManager {
     pub fn load_config(&self) -> Result<AppConfig, AppError> {
         if self.config_file.exists() {
             let config_content = fs::read_to_string(&self.config_file)
-                .map_err(AppError::ConfigReadError)?;
+                .map_err(AppError::Io)?;
             let app_config: AppConfig = serde_json::from_str(&config_content)
                 .map_err(AppError::ConfigParseError)?;
             Ok(app_config)
@@ -74,7 +74,7 @@ impl PersistenceManager {
         let config_content = serde_json::to_string_pretty(config)
             .map_err(AppError::ConfigParseError)?;
         fs::write(&self.config_file, config_content)
-            .map_err(AppError::ConfigReadError)?;
+            .map_err(AppError::Io)?;
         Ok(())
     }
 
